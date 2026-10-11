@@ -1,0 +1,22 @@
+{
+  "name": "room",
+  "version": "0.1.0",
+  "description": "SLP room on ZCode: the out-of-band mailbox (MCP post/read, addressed by seat) backed by the workspace room-state directory.",
+  "author": { "name": "Andrew Pham" },
+  "license": "MIT",
+  "skills": "skills",
+  "mcpServers": {
+    "room": {
+      "command": "/Applications/ZCode.app/Contents/Frameworks/ZCode Helper.app/Contents/MacOS/ZCode Helper",
+      "args": [
+        "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs",
+        "__zcode-plugin-host",
+        "${ZCODE_PLUGIN_ROOT}/server/mcp-server.mjs"
+      ],
+      "cwd": "${ZCODE_PROJECT_DIR}",
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    }
+  }
+}

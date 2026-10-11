@@ -1,0 +1,14 @@
+{
+  "name": "zcode-room",
+  "version": "0.1.0",
+  "description": "Build repo for SLP on ZCode: the room plugin (mailbox, registry, ledger) and its wrapper. Pure Node, zero runtime dependencies.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}

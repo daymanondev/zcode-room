@@ -1,0 +1,13 @@
+{
+  "name": "dev-zcode-room-e34c31f0",
+  "plugins": [
+    {
+      "name": "room",
+      "source": "./room",
+      "version": "0.1.0",
+      "description": "SLP room on ZCode: the out-of-band mailbox (MCP post/read, addressed by seat) backed by the workspace room-state directory.",
+      "displayName": "Room (SLP)",
+      "category": "developer-tools"
+    }
+  ]
+}
