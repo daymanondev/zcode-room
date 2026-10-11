@@ -2,8 +2,9 @@
 
 The ZCode plugin for the SLP room: an MCP mailbox (`post_message` /
 `read_mailbox`, addressed by seat name) backed by the workspace room-state
-directory. Issue 01 delivers the skeleton + mailbox; registry, ledger, and
-the wrapper CLI arrive with issues 04+.
+directory, plus the room's role contracts. Issue 01 delivered the skeleton +
+mailbox; issue 02 added the contracts; registry, ledger, and the wrapper CLI
+arrive with issues 04+.
 
 ## Components
 
@@ -11,6 +12,14 @@ the wrapper CLI arrive with issues 04+.
   builtins only). Tools: `post_message`, `read_mailbox`.
 - `skills/room/SKILL.md` — the mailbox contract every seat reads
   (native-first law, addressing, read-consumes semantics).
+- `contracts/WORKSPACE-PROTOCOL.md` — the shared protocol block, carried in
+  the build repo's AGENTS.md and droppable into a target repo's workspace
+  instructions.
+- `contracts/PEER.md` — the peer contract; the Lead prepends it verbatim to
+  every peer spawn prompt.
+- `contracts/LEAD.md` — the Lead contract in its M0 main-session form.
+  Law-by-law traceability for all three: `docs/role-contracts-traceability.md`
+  in the build repo.
 
 ## State layout
 
