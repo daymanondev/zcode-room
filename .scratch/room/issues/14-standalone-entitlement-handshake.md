@@ -23,10 +23,27 @@ demonstrates a working route around the desktop handshake.
 - [ ] Live probe B (Human-gated): `zcode login` from the CLI, then re-run
       the pair/baseline probes — does a CLI-own login flip entitlement?
       Gated because it mutates shared `~/.zcode/v2/credentials.json`
+- [ ] Live probe C — desktop-as-daemon (route-around; needs nothing from
+      upstream): the web remote proves an external client can drive the
+      running, entitled desktop app to create sessions (B — relay
+      `wss://zcode.chatglm.site/ws`, pairing commands, `web-remote-replayable`
+      delivery kind; bundle read 2026-10-12). The wall only affects
+      standalone processes we mint ourselves. Find the desktop's internal
+      control path — no TCP listener exists (A, `lsof` 2026-10-12); the
+      desktop spawns entitled `zcode-cli` children per session (A,
+      feasibility §9.1 process tree) — likely stdio children or a unix
+      socket; read the bundle for the launch/IPC surface, then drive one
+      session creation through it and check `model.available`
 - [ ] Outcome recorded in the evidence base with a re-verify step; feasibility
       §10 and the bug-report draft updated if the picture moves
 
 **Notes (scoping from issue 03):**
+
+- Probe C differs in kind from A/B and the bundle trace: those try to make
+  standalone processes pass the entitlement check; C never mints a
+  standalone process at all — it asks the already-entitled desktop app to
+  host the session (the Paseo-daemon role, played by the app). If C works,
+  the wall stops mattering for the room.
 
 - Already tried and negative (do not retry on this binary): env pair,
   bundled-config var, `server/discover` on app-server, `setModel`,
