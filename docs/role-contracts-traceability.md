@@ -1,7 +1,8 @@
 # Role contracts v1 — traceability
 
-Every law in the three v1 contracts — the shared workspace protocol, the
-PEER contract, the LEAD contract (M0 form) — maps to its source, with
+Every law in the v1 contracts — the shared workspace protocol, the PEER
+contract, the LEAD contract, and the SUPERVISOR contract (shipped with the
+`/slp` skill, issue 08) — maps to its source, with
 status:
 
 - **kept** — same law, English wording, no mechanics change.
@@ -18,7 +19,9 @@ there: star law and sub-agent MCP surface are grade A, live-proven
 
 Contracts: `plugins/room/contracts/WORKSPACE-PROTOCOL.md` (carried in
 `AGENTS.md` § SLP room protocol), `plugins/room/contracts/PEER.md`,
-`plugins/room/contracts/LEAD.md`.
+`plugins/room/contracts/LEAD.md`, and
+`plugins/room/skills/slp/SKILL.md` (the Supervisor contract rides the
+arming skill — re-invoking `/slp` reloads it, so no separate file).
 
 The contracts are self-contained by design: each rides alone in a spawn
 prompt, so shared blocks (the six-field handoff, the three reports, the
@@ -34,7 +37,7 @@ canon counterpart, listed so the table stays exhaustive.
 | Authority split: Human / Supervisor / Lead / Peer domains | codex-room `WORKSPACE_PROTOCOL.md`, quoted verbatim in `research/slp/codex-room-setup-notes.md` §9(a) | kept | Near-verbatim translation, plus the role glosses of `research/slp/02-bon-vai-supervisor-lead-peer.md` |
 | Local commits are the writer's; off-machine effects are the Human's; line is reversibility, not the git verb | `research/slp/02-bon-vai-supervisor-lead-peer.md` §Human/Owner; `research/slp/PEER.md` §Ranh giới | kept | |
 | Topology: Supervisor = main chat session, Leads = dispatched sessions, Peers = sub-agents | ADR 0001; spec §Implementation Decisions (Topology) | added | ZCode shape; codex-room's equivalent is its provider/runtime layout (`codex-room-setup-notes.md` §8) |
-| M0 note: Human plays Supervisor, main session runs as Lead | spec §Implementation Decisions (Milestones, M0) | added | |
+| Topology note: Supervisor armed explicitly via `/slp` (before M2 the Human played Supervisor, main session ran as Lead) | spec §Implementation Decisions (Topology, Milestones); issue 08 | added | |
 | One session owns its topology; peer non-aggression (no spawn/manage/coordinate, no topology inference, no self-accept) | codex-room peer overlay, §9(f) of the notes; star law `research/zcode-slp-feasibility.md` §1 (A) | swapped | Same law; on ZCode the star law enforces it mechanically (sub-agents have no spawn tool), the text is the tripwire |
 | Closure loop: brief → response → disposition; silence/DONE/tests are not a disposition; no dependent dispatch | codex-room lead overlay, §9(c) of the notes (verbatim quote) | kept | |
 | Escalation: three reports, each with evidence, consequence, decision/dependency needed | codex-room `WORKSPACE_PROTOCOL.md`, §9(b) of the notes (verbatim quote) | kept | |
@@ -94,22 +97,22 @@ canon counterpart, listed so the table stays exhaustive.
 | Conclusion first; MECE; Feynman (Writing) | `research/slp/PEER.md` §Diễn đạt | kept | |
 | Anti-patterns: whack-a-mole, architecture fog, edge-case overbuild, wrapper-avoiding-decision, same-call retry (Anti-patterns) | `research/slp/PEER.md` §Anti-pattern tự soi | kept | |
 
-## 3. LEAD contract, M0 form (`plugins/room/contracts/LEAD.md`)
+## 3. LEAD contract (`plugins/room/contracts/LEAD.md`, both run forms since issue 08)
 
 | Law (section) | Source | Status | Note |
 | --- | --- | --- |---|
 | Lead of exactly one project; final technical arbiter at project tier; owns framing → … → acceptance (intro) | `research/slp/LEAD.md` intro | kept | |
-| M0 form: main session, Human plays Supervisor, sub-agents only, never design around session spawning (intro) | spec §Milestones (M0); AGENTS.md wall rule; feasibility §9.3 | added | Scoped header — struck when M2 lands session dispatch |
+| Run forms: main session (Human plays Supervisor) or headless session dispatched by the wrapper; peers stay sub-agents on both (intro) | spec §Milestones (M0→M2); issue 08 | added | The M0-scoped header was struck when session dispatch landed (issue 08), per this row's original note; the "never design around spawning sessions" line died with the wall (issue 14) |
 | Bootstrap: repo root; read AGENTS.md, contract boundary first; propose one if missing (Bootstrap) | `research/slp/LEAD.md` §Bootstrap | swapped | `CLAUDE.md` → `AGENTS.md`; seatworks `templates/CLAUDE_MD_SNIPPET.md` pointer → "propose the Human build one" |
 | Confirm checkout has no uncommitted user work to overwrite (Bootstrap) | same | kept | |
 | Every identity from the surface, never guessed (repo root, spawn-returned agentId) (Bootstrap) | `research/slp/LEAD.md` §Bootstrap 3 ("Inspect provider, model, workspace, agent via Paseo — mọi ID lấy từ đó") | swapped | Paseo's provider/agent inspection has no M0 counterpart; the law survives as: identities come from the resolved root and the Agent tool's returned `agentId`, never recall |
 | Read protocol + PEER contract fresh, never from memory (Bootstrap) | `research/slp/LEAD.md` §Bootstrap (skill-list law) + spec (Role contracts) | swapped | The "list doesn't survive compression — look it up" law applied to the contract files themselves |
 | Skills list lookup vs recall (Bootstrap) | `research/slp/LEAD.md` §Bootstrap | kept | |
 | Capability ≠ authority; repo outranks seat (Bootstrap) | same | kept | |
-| Control plane: every peer via the native Agent tool; PEER contract prepended verbatim; star law enforcement free (Control plane) | `research/slp/LEAD.md` §Control plane; ADR 0001; feasibility §1 (A) | swapped | "Every agent goes through Paseo" → "every peer goes through the Agent tool"; prompt = contract + brief per spec (Role contracts) |
-| No per-spawn mode/thinking dial; mode from session; effort rides in the brief (Control plane) | `research/slp/LEAD.md` §Control plane (`modeId`/`thinkingOptionId`) | swapped | ZCode public surface exposes no per-spawn dials (grade B: absence read from the observed Agent-tool surface and `research/zcode-slp-feasibility.md` §2/§8 — the app-server carries model selection, the public spawn path does not); per-session model selection returns with the hidden control plane (M2, spec) |
+| Control plane: every peer via the native Agent tool; PEER contract prepended verbatim; star law enforcement free (Control plane) | `research/slp/LEAD.md` §Control plane; ADR 0001; feasibility §1 (A) | swapped | "Every agent goes through Paseo" → "every peer goes through the Agent tool"; prompt = contract + brief per spec (Role contracts). Since issue 08 the Lead itself may be the dispatched one — the vehicle for peers is unchanged |
+| No per-spawn mode/thinking dial; mode from session; effort rides in the brief (Control plane) | `research/slp/LEAD.md` §Control plane (`modeId`/`thinkingOptionId`) | swapped | ZCode public surface exposes no per-spawn dials (grade B: absence read from the observed Agent-tool surface and `research/zcode-slp-feasibility.md` §2/§8 — the app-server carries model selection, the public spawn path does not); per-role defaults arrive with the room config (issue 09) |
 | Human decides: product direction, portfolio priority, irreversible trade-offs, off-machine effects (Human decides) | `research/slp/LEAD.md` §Human quyết | kept | |
-| NEEDS-HUMAN line: own line, choice + what follows from each answer; M0 says it in chat (Human decides) | paseo-room via `slp-lead-fidelity.md` §1b (A) | kept | Vehicle swapped for M0 (chat) |
+| NEEDS-HUMAN line: own line, choice + what follows from each answer; chat in the main-session form, final report when dispatched (Human decides) | paseo-room via `slp-lead-fidelity.md` §1b (A) | kept | Both vehicles stated since issue 08 (the Supervisor relays the dispatched form) |
 | Never self-accept; `LEAD-WROTE: <sha> — needs Human accept` marker; no third path; reasonable-sounding excuse (Never self-accept) | `research/slp/LEAD.md` §Bạn implement được… | kept | Marker translated; seatworks' counter script (`bin/measure-lead-writes.py`) not carried — rebuild when an audit demands it |
 | Diff-too-big-to-read is the signal to hand to a peer (Never self-accept) | same | kept | |
 | Trade = framing/splitting/briefs/diff-reading/ruling/accepting; rigs in `/tmp`; split the front; isolation not throughput (Never self-accept) | same | kept | |
@@ -139,12 +142,30 @@ canon counterpart, listed so the table stays exhaustive.
 | Conclusion first; MECE; Feynman (Writing) | `research/slp/LEAD.md` §Diễn đạt | kept | |
 | Anti-patterns: whack-a-mole, architecture fog, framing capture (Anti-patterns) | `research/slp/LEAD.md` §Anti-pattern tự soi | kept | |
 
-## 4. Deliberately not carried in v1
+## 4. SUPERVISOR contract (`plugins/room/skills/slp/SKILL.md`, issue 08)
+
+| Law (section) | Source | Status | Note |
+| --- | --- | --- | --- |
+| Supervisor = the seat the Human chats with; observes, faithfully routes Human intent, performs bounded room recovery; not another project Lead (intro) | codex-room `WORKSPACE_PROTOCOL.md` §9(a) of the notes; `research/slp/02-bon-vai-supervisor-lead-peer.md` §Supervisor | kept | |
+| No code pen, no acceptance pen; protects process quality, not product quality (intro) | `02-bon-vai…` §Supervisor ("không code, không chạy validation của project, không quyết kết quả kỹ thuật") | kept | |
+| Human owns product goals, priority, material cost, external effects, irreversible risk (intro) | §9(a) of the notes | kept | Restated from the shared protocol; the Supervisor is bound by both |
+| Arming is explicit and cheap to repeat; `/slp` reloads the contract (Arming) | spec user stories 1–2; spec §Role contracts ("Supervisor contract loads via the skill") | added | ZCode mechanics: skill + `register_seat` |
+| One live supervisor; a second arming — same seat from another session, or a new seat — is refused citing the live seat; recovery is the Human's explicit retire, then a successor name (Arming) | spec user story 2; lifecycle follows canon | swapped | Canon's one-supervisor is Paseo tool gating; here `register_seat` refuses, keyed on the arming server instance (one per session's MCP connection, grade B) |
+| Loop auditor: enforce brief → response → disposition from the ledger; the Lead's summary alone is not proof a loop closed; name ledger gaps in the relay (Supervisor law) | codex-room supervisor overlay, §9(d) of the notes (verbatim) | kept | Audit source swapped to the room ledger (spec user story 15) |
+| Privacy firewall: no verbatim Human quotes, labels, attribution, private agent IDs, or who-spoke-to-whom in Lead-facing messages or artifacts; authorized decisions expressed as direct instructions (Supervisor law) | §9(e) of the notes (verbatim) | kept | Clarified: relaying up to the Human is the endpoint — full fidelity there |
+| Advise the Lead, never command the worker; no parallel chain of command (Supervisor law) | `02-bon-vai…` §Supervisor | kept | |
+| Intervene only when advice improves the Lead's next action; the bad-signs list — micro-scoped orders, pre-solving, template staffing, reviews without real uncertainty, polling, permission loops, decisions bounced to the Human (Supervisor law) | `02-bon-vai…` §Supervisor | kept | Condensed to one line each |
+| Notebook: append-only supervisory learnings, synthesized by pattern; never mutate the protocol while merely supervising (Supervisor law) | `02-bon-vai…` §Supervisor (`SUPERVISOR_NOTEBOOK.md`) | swapped | Cross-workspace file → per-room `<state-dir>/supervisor-notebook.md` (one room per workspace, spec) |
+| Dispatch: brief framed faithfully and neutrally from Human intent, not pre-solved; report shape required (NEEDS-HUMAN inside, LEAD-WROTE for Lead-written code); brief saved for the audit; Lead seat registered by the dispatcher; `brief_sent` recorded; background dispatch, wait for the notification, never poll (Dispatching) | spec user stories 11–12, 15; codex-room notes §7 (`background=true` + `notifyOnFinish=true`) | swapped | Paseo notifyOnFinish → ZCode background Bash; the wrapper (`room lead new`, issue 07) is the vehicle; off-room dispatch warning added (one room per workspace) |
+| Relay: ledger facts first (loop lines with seq and details), never only the Lead's summary; outcome compressed honestly; every NEEDS-HUMAN line surfaced verbatim and recorded (`needs_human`); LEAD-WROTE waits for the Human; audit gaps named; mailbox checked before relaying; the Human's answer (accept/reject of LEAD-WROTE, NEEDS-HUMAN ruling) recorded as `disposition` before dependent dispatch (Relay) | spec user stories 3, 15; §9(d) of the notes | added | The relay is the in-app observability surface (spec §Observability); the disposition step closes the loop the Supervisor itself opened — the room skill's "the seat that observes the event records it" duty applied to the dispatch link |
+| Retire is explicit, never by silence: only `retire_seat` ends ownership (registry cleared + `retired` ledger line); one re-poke first, then the Human's decision; the wrapper's session map is not ownership (Retiring) | spec user story 7; spec §Lifecycle follows canon | kept | |
+| Scope fence: per-role models, heartbeat automation, further seat enforcement, board, teardown are their own tickets (Not yours) | spec §Milestones (M2/M3 split) | added | Staging law: the Supervisor does not improvise unreached machinery |
+
+## 5. Deliberately not carried in v1
 
 | Canon item | Source | Reason |
 | --- | --- | --- |
-| `INCIDENT:` lines for out-of-scope effects | paseo-room via `slp-lead-fidelity.md` §1b (A) | v1 folds out-of-scope effects into `BLOCKED` (needs-Human branch) and the handoff's Unknown/risk field; the Supervisor contract (M2) revisits with relay law. Spec user stories demand only NEEDS-HUMAN |
-| Full Supervisor contract (loop audit, privacy firewall, notebook) | codex-room supervisor overlay, §9(d)/(e) of the notes | Ships with the `/slp` skill in M2 per spec; only its one-line stance ("not another project Lead") rides the protocol |
+| `INCIDENT:` lines for out-of-scope effects | paseo-room via `slp-lead-fidelity.md` §1b (A) | v1 folds out-of-scope effects into `BLOCKED` (needs-Human branch) and the handoff's Unknown/risk field; the Supervisor contract (issue 08, §4) folds the relay into NEEDS-HUMAN lines. Spec user stories demand only NEEDS-HUMAN |
 | Supervisor heartbeat fallback (`*/2` cron, dedup via `list_schedules`) | codex-room notes §7 (A) | Issue 10 (heartbeat / re-poke), after session dispatch exists (M2) |
 | `claude-peer` provider hardcoding + the look-alike provider trap | `research/slp/LEAD.md` §Control plane | Paseo-specific; M0 has exactly one spawn vehicle so the trap cannot occur. Re-examine when M2 adds session dispatch |
 | LEAD-WROTE counter script | seatworks `bin/measure-lead-writes.py` (cited in LEAD.md) | Marker law kept; the counter is tooling — rebuild when an audit question demands it |

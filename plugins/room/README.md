@@ -2,11 +2,13 @@
 
 The ZCode plugin for the SLP room: an MCP mailbox (`post_message` /
 `read_mailbox`, addressed by seat name), the seat registry, the append-only
-ledger, and the room's role contracts — all backed by the workspace
-room-state directory. Issue 01 delivered the skeleton + mailbox; issue 02 the
-contracts; issue 04 the registry, the ledger, and the first wrapper command
-(`room tail`); issue 07 the wrapper's `doctor` and `lead` verbs (private
-surface re-verification, and headless Lead dispatch over the control plane).
+ledger, the room's role contracts, and the `/slp` Supervisor-arming skill —
+all backed by the workspace room-state directory. Issue 01 delivered the
+skeleton + mailbox; issue 02 the contracts; issue 04 the registry, the
+ledger, and the first wrapper command (`room tail`); issue 07 the wrapper's
+`doctor` and `lead` verbs (private surface re-verification, and headless
+Lead dispatch over the control plane); issue 08 the `/slp` skill and the
+enforced one-supervisor arming.
 
 ## Components
 
@@ -17,9 +19,14 @@ surface re-verification, and headless Lead dispatch over the control plane).
     Registering the same seat with the same role is idempotent; the first
     registration in a workspace opens the room (ledger `room_opened`);
     lead/peer registration and retirement mint their own ledger lines. The
-    one-supervisor rule is carried in the registry (`status: advisory`,
-    enforcement M2 / issue 11): a second live supervisor registers but is
-    warned, not refused. Retirement is terminal for a seat name.
+    one-supervisor rule is enforced at the arming act (issue 08): the
+    registry records which server instance (one per session's MCP
+    connection, grade B — pinned below as dependency 3) armed the live
+    supervisor, and any other session's arming — re-arming the same seat
+    or a new supervisor seat — is refused citing the live seat. Recovery
+    is explicit: the Human retires the seat, then a successor name arms.
+    A supervisor record with no arming marker (pre-08 state) refuses the
+    same way. Retirement is terminal for a seat name.
   - `record_event` / `read_ledger` — the closure-loop ledger.
     `record_event` takes exactly the four loop events (`brief_sent`,
     `handoff_received`, `disposition`, `needs_human`); lifecycle lines are
@@ -70,14 +77,23 @@ surface re-verification, and headless Lead dispatch over the control plane).
     plus `ZCODE_CREDENTIAL_SECRET` (the credential cipher's own var).
 - `skills/room/SKILL.md` — the seat-facing contract every seat reads:
   native-first law, mailbox addressing, registry duties, ledger duties.
+- `skills/slp/SKILL.md` — the Supervisor arming skill (`/slp`): arms the
+  chat session as the room's Supervisor (register_seat) and carries the
+  Supervisor contract in full — loop auditor (relay quotes ledger facts,
+  never only a Lead's summary), privacy firewall on Lead-facing messages,
+  advice-to-the-Lead, the append-only notebook — plus the dispatch,
+  relay-on-notification, and explicit-retire procedures for Leads run
+  through the wrapper.
 - `contracts/WORKSPACE-PROTOCOL.md` — the shared protocol block, carried in
   the build repo's AGENTS.md and droppable into a target repo's workspace
   instructions.
 - `contracts/PEER.md` — the peer contract; the Lead prepends it verbatim to
   every peer spawn prompt.
-- `contracts/LEAD.md` — the Lead contract in its M0 main-session form.
-  Law-by-law traceability for all three: `docs/role-contracts-traceability.md`
-  in the build repo.
+- `contracts/LEAD.md` — the Lead contract (both run forms since issue 08:
+  main session, or headless session dispatched by the wrapper, which
+  prepends it verbatim to the dispatch payload).
+  Law-by-law traceability for all four contracts:
+  `docs/role-contracts-traceability.md` in the build repo.
 
 ## State layout
 
@@ -144,11 +160,28 @@ moved on 3.15.1: [research/entitlement-crack-2026-10-12.md](../../research/entit
   real one during issue 07: a provider id missing its `account:` prefix
   pushes "successfully" but never publishes).
 
+**3. The arming-instance assumption** (issue 08): the enforced
+one-supervisor arming keys "same session" to the MCP server process —
+`INSTANCE_ID` in the server module — which assumes the host launches one
+server process per session's connection and keeps it for the session's
+life (grade B: the launch form is pinned above; process-per-session is
+the standard stdio-MCP shape, the no-mid-session-restart half is
+inferred, not observed). Failure mode, if the assumption breaks: a
+mid-session restart mints a new id and the same session's next arming is
+refused "armed by another session" — safe direction (the rule fails
+closed, never two commanders); recovery is the explicit retire +
+successor name. Re-verify: the next live `/slp` in a fresh session after
+the 0.4.0 UI reinstall (arming in-app, then re-invoking `/slp` in the
+same session must return `already: true`, not a refusal).
+
 ## Versioning note
 
 0.1.0 shipped the mailbox; 0.2.0 adds registry, ledger, and `room tail`;
 0.3.0 adds `room doctor` and `room lead` (the wrapper grows; the MCP tool
-surface is unchanged). A ZCode session sees only the tools of the plugin
+surface is unchanged); 0.4.0 adds the `/slp` skill and enforces the
+one-supervisor arming in `register_seat` (the first MCP behavior change —
+a second live supervisor is now refused, not warned). A ZCode session sees
+only the tools of the plugin
 version it loaded at start (grade A: observed 2026-10-12, issue 01 — a
 sub-agent in a pre-install session enumerated its full tool list and had no
 `mcp__room__*`; matches the plugin-creator doc's "old tasks retain an
@@ -170,6 +203,12 @@ structurally (earlier bytes frozen across retire/record) and detectably
 (out-of-band tampering breaks the chain at the exact line), read paging, and
 `room tail` as a live subprocess (history + follow + read-only + waiting
 mode) in `test/registry-ledger.test.mjs` and `test/room-tail.test.mjs`.
+Issue 08 rewrote the one-supervisor coverage for the enforced arming:
+same-session re-arm idempotent, a second session's arming (same seat or
+new seat) refused citing the live seat with nothing written, legacy
+records without the arming marker refused the same way, explicit recovery
+(retire, then a successor name), and the gate's scope (lead/peer seats
+stay idempotent across sessions).
 Issue 07 added: the wrapper's pure private-surface helpers
 (`test/room-wrapper.test.mjs` — revision path-hash formula against an
 independently computed hash, catalog resolution + ambiguity refusal, the

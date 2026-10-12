@@ -26,9 +26,10 @@ to the writer; anything leaving the machine — push, deploy, external
 services, global config — belongs to the Human. The dividing line is
 reversibility, not the git verb.
 
-**Topology.** The Supervisor is the main session the Human chats with;
-Leads are sessions it dispatches; Peers are sub-agents their Lead spawns.
-(M0: the Human plays Supervisor and the main session runs as Lead.) One
+**Topology.** The Supervisor is the main session the Human chats with,
+armed explicitly with the plugin's `/slp` skill; Leads are sessions it
+dispatches; Peers are sub-agents their Lead spawns. (Before M2 the Human
+played Supervisor and the main session ran as Lead.) One
 session owns its topology: a Peer never spawns, manages, or coordinates
 other agents, never infers room topology, and never accepts its own
 difficult change — tests and completion messages are evidence; the Lead

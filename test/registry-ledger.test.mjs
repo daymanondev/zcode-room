@@ -1,9 +1,10 @@
 // Registry and ledger over the MCP surface (issue 04): registration
-// lifecycle, the advisory one-supervisor rule, the closed ledger vocabulary,
-// and append-only proven both structurally (earlier bytes never change) and
-// detectably (the hash chain catches out-of-band tampering).
+// lifecycle, the one-supervisor arming rule (enforced since issue 08), the
+// closed ledger vocabulary, and append-only proven both structurally
+// (earlier bytes never change) and detectably (the hash chain catches
+// out-of-band tampering).
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -77,26 +78,101 @@ test("re-register is idempotent: no new ledger line, identity preserved", async 
   await server.close();
 });
 
-test("the one-supervisor rule is recorded and advisory: second supervisor warns, not refuses", async (t) => {
+test("one-supervisor arming is enforced: a second session's arming is refused citing the live seat", async (t) => {
   const ws = tempWorkspace();
   const server = await openServer(ws, t);
   await server.callTool("register_seat", { seat: "supervisor", role: "supervisor" });
 
-  const second = await server.callTool("register_seat", { seat: "supervisor-2", role: "supervisor" });
-  assert.equal(second.isError, false, "advisory means the registration still lands");
-  assert.match(second.parsed.warning, /one-supervisor rule \(advisory until M2 \(issue 11\)\)/);
-  assert.match(second.parsed.warning, /seat 'supervisor' is already the live supervisor/);
+  // Same arming session (same server process): re-arming is free and
+  // idempotent — entering room mode stays cheap to repeat.
+  const again = await server.callTool("register_seat", { seat: "supervisor", role: "supervisor" });
+  assert.equal(again.isError, false);
+  assert.equal(again.parsed.already, true);
 
-  const lookup = await server.callTool("lookup_seats", { role: "supervisor" });
-  assert.equal(lookup.isError, false);
-  assert.deepEqual(lookup.parsed.seats.map((seat) => seat.seat), ["supervisor", "supervisor-2"]);
+  // A different session (fresh server process) re-arming the same seat
+  // name must not slide through the idempotence path: the seat is armed by
+  // another session.
+  const other = await openServer(ws, t);
+  const sameSeat = await other.callTool("register_seat", { seat: "supervisor", role: "supervisor" });
+  assert.equal(sameSeat.isError, true);
+  assert.match(sameSeat.text, /armed by another session/);
+  assert.match(sameSeat.text, /seat 'supervisor'/);
+
+  // And a second supervisor under a new seat name is refused citing the
+  // live seat, not merely warned.
+  const second = await other.callTool("register_seat", { seat: "supervisor-2", role: "supervisor" });
+  assert.equal(second.isError, true);
+  assert.match(second.text, /one-supervisor rule \(enforced\)/);
+  assert.match(second.text, /seat 'supervisor' is already the live supervisor/);
+
+  // Refusals are recorded nowhere: no second live supervisor, no ledger
+  // line, no registry rewrite.
+  const lookup = await other.callTool("lookup_seats", { role: "supervisor" });
+  assert.deepEqual(lookup.parsed.seats.map((seat) => seat.seat), ["supervisor"]);
   const rule = lookup.parsed.rules.find((entry) => entry.id === "one-supervisor");
   assert.ok(rule, "the rule itself is recorded in the registry");
-  assert.equal(rule.status, "advisory");
+  assert.equal(rule.status, "enforced");
 
   const onDisk = JSON.parse(readFileSync(join(ws.stateDir, "registry.json"), "utf8"));
   assert.equal(onDisk.rules[0].id, "one-supervisor", "rule is on disk, not just in responses");
+  assert.equal(typeof onDisk.seats.supervisor.armed_by, "string", "the arming session's marker is recorded");
+  await other.close();
+});
+
+test("a live supervisor recorded before the arming marker (legacy state) still refuses a new session's arming", async (t) => {
+  const ws = tempWorkspace();
+  // Shape of pre-08 registry records (the M0 live run's residue): live
+  // supervisor seat with no armed_by marker.
+  mkdirSync(ws.stateDir, { recursive: true });
+  writeFileSync(
+    join(ws.stateDir, "registry.json"),
+    JSON.stringify({
+      seats: {
+        supervisor: { seat: "supervisor", role: "supervisor", registered_at: "2026-10-12T12:16:46.599Z", state: "live", retired_at: null },
+      },
+    })
+  );
+
+  const server = await openServer(ws, t);
+  const arm = await server.callTool("register_seat", { seat: "supervisor", role: "supervisor" });
+  assert.equal(arm.isError, true);
+  assert.match(arm.text, /armed by another session/);
   await server.close();
+});
+
+test("recovery is explicit: retire the live supervisor, then a successor name arms", async (t) => {
+  const ws = tempWorkspace();
+  const server = await openServer(ws, t);
+  await server.callTool("register_seat", { seat: "supervisor", role: "supervisor" });
+
+  const retired = await server.callTool("retire_seat", { seat: "supervisor" });
+  assert.equal(retired.isError, false);
+  assert.deepEqual(retired.parsed.ledger.map((event) => event.type), ["retired"]);
+
+  // The retired name stays terminal; the successor arms under a new name.
+  const revival = await server.callTool("register_seat", { seat: "supervisor", role: "supervisor" });
+  assert.equal(revival.isError, true);
+  assert.match(revival.text, /retirement is terminal/);
+
+  const successor = await server.callTool("register_seat", { seat: "supervisor-2", role: "supervisor" });
+  assert.equal(successor.isError, false);
+  assert.equal(successor.parsed.already, false);
+
+  const lookup = await server.callTool("lookup_seats", { role: "supervisor", state: "live" });
+  assert.deepEqual(lookup.parsed.seats.map((seat) => seat.seat), ["supervisor-2"]);
+  await server.close();
+});
+
+test("the arming gate is supervisor-only: lead and peer seats stay idempotent across sessions", async (t) => {
+  const ws = tempWorkspace();
+  const first = await openServer(ws, t);
+  await first.callTool("register_seat", { seat: "lead", role: "lead" });
+
+  const second = await openServer(ws, t);
+  const rearm = await second.callTool("register_seat", { seat: "lead", role: "lead" });
+  assert.equal(rearm.isError, false, "seat enforcement beyond the supervisor arming is issue 11's");
+  assert.equal(rearm.parsed.already, true);
+  await second.close();
 });
 
 test("lookup answers who holds which seat, filtered by role and state", async (t) => {

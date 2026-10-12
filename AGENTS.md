@@ -33,7 +33,9 @@ The room's shared protocol; every seat in the room reads and is bound by
 it. Droppable copy for target repos:
 [plugins/room/contracts/WORKSPACE-PROTOCOL.md](plugins/room/contracts/WORKSPACE-PROTOCOL.md);
 per-seat contracts: [plugins/room/contracts/LEAD.md](plugins/room/contracts/LEAD.md),
-[plugins/room/contracts/PEER.md](plugins/room/contracts/PEER.md);
+[plugins/room/contracts/PEER.md](plugins/room/contracts/PEER.md) — the
+Supervisor contract rides the plugin's `/slp` skill
+([plugins/room/skills/slp/SKILL.md](plugins/room/skills/slp/SKILL.md));
 law-by-law traceability:
 [docs/role-contracts-traceability.md](docs/role-contracts-traceability.md).
 
@@ -51,9 +53,10 @@ to the writer; anything leaving the machine — push, deploy, external
 services, global config — belongs to the Human. The dividing line is
 reversibility, not the git verb.
 
-**Topology.** The Supervisor is the main session the Human chats with;
-Leads are sessions it dispatches; Peers are sub-agents their Lead spawns.
-(M0: the Human plays Supervisor and the main session runs as Lead.) One
+**Topology.** The Supervisor is the main session the Human chats with,
+armed explicitly with the plugin's `/slp` skill; Leads are sessions it
+dispatches; Peers are sub-agents their Lead spawns. (Before M2 the Human
+played Supervisor and the main session ran as Lead.) One
 session owns its topology: a Peer never spawns, manages, or coordinates
 other agents, never infers room topology, and never accepts its own
 difficult change — tests and completion messages are evidence; the Lead

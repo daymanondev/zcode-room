@@ -17,8 +17,8 @@
 //   ledger.jsonl           append-only, hash-chained closure-loop record
 // Boxes are created by the first post; reading a seat with no box is a tool
 // error. One write per line keeps concurrent posts from interleaving; cursor
-// advance assumes the seat itself is the only reader of its box (seat
-// enforcement arrives with M2, issue 11).
+// advance assumes the seat itself is the only reader of its box (full seat
+// enforcement arrives with issue 11).
 //
 // The ledger vocabulary is closed (spec: Implementation Decisions): lifecycle
 // lines (room_opened, lead_registered, peer_spawned, retired) are minted only
@@ -34,9 +34,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const SERVER_NAME = "room";
-// Tracks the plugin version (plugin.json); the MCP tool surface is
-// unchanged since 0.2.0 (0.3.0 grew the wrapper CLI only).
-const SERVER_VERSION = "0.3.0";
+// Tracks the plugin version (plugin.json). 0.4.0 changes the MCP surface
+// (issue 08): the one-supervisor arming rule went from advisory to enforced
+// (register_seat refuses a second live supervisor, citing the live seat).
+const SERVER_VERSION = "0.4.0";
 // Latest revision the bundle is known to negotiate — all four 2024-10-07 …
 // 2025-06-18 revisions appear in zcode.cjs 0.16.9 (grade B, bundle-read);
 // unknown requests fall back to this one.
@@ -50,6 +51,18 @@ const KNOWN_PROTOCOL_VERSIONS = new Set([
 
 const SEAT_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const MAX_BODY_BYTES = 65536;
+
+// Identifies this server process so the one-supervisor arming can tell the
+// arming session's own re-arm (idempotent) from a second session's arming
+// attempt (refused). Load-bearing assumption (grade B, not directly
+// observed for the restart half): the host launches one server process per
+// session's MCP connection and keeps it for the session's life — pinned in
+// plugins/room/README.md with the failure mode. That failure mode is safe:
+// a mid-session server restart mints a new id and the same session's next
+// arming is refused ("armed by another session"), forcing the explicit
+// recover (Human retires, successor name arms) — the rule fails closed,
+// never open. A record with no marker (pre-08 state) refuses the same way.
+const INSTANCE_ID = randomBytes(8).toString("hex");
 
 class ToolError extends Error {}
 class ProtocolError extends Error {
@@ -138,15 +151,16 @@ function readMailbox(stateDir, { seat }) {
 
 const ROLES = ["supervisor", "lead", "peer"];
 const SEAT_STATES = ["live", "retired"];
-// Room rules carried in the registry so they are recorded, not folklore. The
-// one-Supervisor rule is advisory here: registration of a second supervisor
-// warns instead of refusing — refusal lands with M2 seat enforcement.
+// Room rules carried in the registry so they are recorded, not folklore.
+// The one-Supervisor rule is enforced at the arming act (issue 08):
+// register_seat refuses a second live supervisor; refusing wrong-seat
+// callers on the other tools is issue 11's.
 const ROOM_RULES = [
   {
     id: "one-supervisor",
     text: "At most one live Supervisor per room.",
-    status: "advisory",
-    enforcement: "M2 (issue 11)",
+    status: "enforced",
+    enforcement: "register_seat refuses a second arming (issue 08); wrong-seat refusal on other tools is issue 11",
   },
 ];
 // The closed ledger vocabulary (spec). Lifecycle lines are minted only by
@@ -186,8 +200,9 @@ function loadRegistry(stateDir) {
 }
 
 // Write-via-rename so a crash mid-write can never leave a torn registry.
-// Read-modify-write is not locked: M0 has one writer (the Lead); revisit if
-// M2's Supervisor ever registers seats concurrently.
+// Read-modify-write is not locked: one writer at a time has held so far
+// (the M0 Lead, then the Supervisor on its own); revisit before seats are
+// registered concurrently (M0 retro finding 6).
 function saveRegistry(stateDir, registry) {
   mkdirSync(stateDir, { recursive: true });
   const file = registryPath(stateDir);
@@ -273,10 +288,30 @@ function registerSeat(stateDir, { seat, role }) {
     if (existing.role !== role) {
       throw new ToolError(`seat '${seat}' is already registered with role '${existing.role}'`);
     }
+    if (role === "supervisor" && existing.armed_by !== INSTANCE_ID) {
+      throw new ToolError(
+        `seat '${seat}' is the live supervisor, armed by another session (registered ${existing.registered_at}) — ` +
+          `the one-supervisor rule is enforced: re-arming from a new session needs the Human to retire the seat first ` +
+          `(retirement is explicit and terminal; a successor arms under a new name after)`
+      );
+    }
     return { registered: existing, already: true, ledger: [], rules: registry.rules };
+  }
+  if (role === "supervisor") {
+    const liveSupervisor = Object.values(registry.seats).find(
+      (candidate) => candidate.role === "supervisor" && candidate.state === "live"
+    );
+    if (liveSupervisor) {
+      throw new ToolError(
+        `one-supervisor rule (enforced): seat '${liveSupervisor.seat}' is already the live supervisor in this room ` +
+          `(registered ${liveSupervisor.registered_at}). Retiring it is an explicit Human act; only then may a ` +
+          `successor seat arm.`
+      );
+    }
   }
   const roomOpens = Object.keys(registry.seats).length === 0;
   const record = { seat, role, registered_at: new Date().toISOString(), state: "live", retired_at: null };
+  if (role === "supervisor") record.armed_by = INSTANCE_ID;
   registry.seats[seat] = record;
   // Two files, no transaction: a crash between these writes leaves the
   // registry and ledger briefly inconsistent. Accepted for M0 (single
@@ -286,16 +321,7 @@ function registerSeat(stateDir, { seat, role }) {
   const ledger = [];
   if (roomOpens) ledger.push(appendLedger(stateDir, { type: "room_opened", seat }));
   if (ROLE_EVENT[role]) ledger.push(appendLedger(stateDir, { type: ROLE_EVENT[role], seat }));
-  const result = { registered: record, already: false, ledger, rules: registry.rules };
-  const liveSupervisor = Object.values(registry.seats).find(
-    (candidate) => candidate.role === "supervisor" && candidate.state === "live" && candidate.seat !== seat
-  );
-  if (role === "supervisor" && liveSupervisor) {
-    result.warning =
-      `one-supervisor rule (advisory until ${ROOM_RULES[0].enforcement}): ` +
-      `seat '${liveSupervisor.seat}' is already the live supervisor`;
-  }
-  return result;
+  return { registered: record, already: false, ledger, rules: registry.rules };
 }
 
 function retireSeat(stateDir, { seat }) {
@@ -408,9 +434,11 @@ const TOOL_DEFS = [
       "Record a seat in the room registry (role: supervisor, lead, or peer). " +
       "The first registration opens the room; registering a lead or peer also " +
       "mints its ledger line (lead_registered / peer_spawned). Re-registering " +
-      "the same seat with the same role is an idempotent no-op. A second live " +
-      "supervisor registers but is warned — the one-supervisor rule is " +
-      "advisory until M2 enforcement.",
+      "the same seat with the same role is an idempotent no-op within the " +
+      "arming session. The one-supervisor rule is enforced: a second live " +
+      "supervisor — another session re-arming the seat, or a new supervisor " +
+      "seat — is refused citing the live seat; the recovery is the Human's " +
+      "explicit retire, after which a successor name arms.",
     inputSchema: {
       type: "object",
       properties: {
@@ -443,7 +471,7 @@ const TOOL_DEFS = [
     description:
       "Answer 'who holds which seat': registered seats with role and " +
       "live/retired state, plus the room's recorded rules (the one-supervisor " +
-      "rule, advisory until M2).",
+      "rule, enforced at the arming act: a second live supervisor is refused).",
     inputSchema: {
       type: "object",
       properties: {

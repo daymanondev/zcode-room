@@ -10,6 +10,11 @@ Domain terms for the SLP room on ZCode. Sources: the SLP contracts in
 - **Seat** — a named address in the room (`supervisor`, `lead`,
   `peer-engineer`, …). The mailbox routes by seat name; holding a seat is
   recorded in the registry.
+- **Arming** — the explicit act that loads a session with a role contract
+  and registers its seat. `/slp` arms the Supervisor (issue 08): cheap to
+  repeat within the arming session, and a second session's arming is
+  refused citing the live seat — recovery is the Human's explicit retire,
+  then a successor seat name.
 - **Supervisor** — the seat the Human chats with. Faithfully routes Human
   intent, audits the closure loop, holds no code pen and no acceptance pen.
   At most one live per room.

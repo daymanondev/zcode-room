@@ -45,9 +45,12 @@ you finish, so a sibling's coordination request cannot strand silently.
 The registry answers "who holds which seat". Register your seat when your
 work in the room starts (`register_seat` with your seat name and role —
 `supervisor`, `lead`, or `peer`); the first registration in a workspace opens
-the room. Re-registering is idempotent. Retirement (`retire_seat`) is an
-explicit, terminal act. `lookup_seats` lists seats and the room's recorded
-rules — including the one-supervisor rule, advisory until M2 enforcement.
+the room. Re-registering is idempotent — for a supervisor, within the arming
+session. The one-supervisor rule is enforced at the arming act: a second
+live supervisor (another session re-arming the seat, or a new supervisor
+seat) is refused citing the live seat; recovery is the Human's explicit
+`retire_seat`, after which a successor name arms. Retirement is terminal
+for a seat name. `lookup_seats` lists seats and the room's recorded rules.
 
 ## Ledger
 
