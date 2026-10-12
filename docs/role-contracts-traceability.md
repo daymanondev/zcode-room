@@ -43,7 +43,7 @@ canon counterpart, listed so the table stays exhaustive.
 | Evidence vs acceptance; Human alone decides scope/cost/external/irreversible | codex-room `WORKSPACE_PROTOCOL.md`, §9(g) of the notes (verbatim quote) | kept | SHA-from-objects wording from `research/slp/LEAD.md` §Ownership |
 | Handoff standard: six fields, order fixed; read-only omits Snapshot; SHA frozen | `research/slp/PEER.md` §Handoff (six-field form); codex-room §9(h) (coarser five-item form) | kept | Seatworks' finer form wins; both cited |
 | Channels: native first; mailbox only for harness-absent links, never primary | spec §Implementation Decisions (Native-first bus policy); room skill `plugins/room/skills/room/SKILL.md` | added | ZCode-room decision; codex-room has no peer mailbox to restrict |
-| Audit: every brief → response → disposition recorded, append-only | spec §Implementation Decisions (Ledger vocabulary) | added | Law stated now; mechanics land with issue 04 |
+| Audit: every brief → response → disposition recorded, append-only | spec §Implementation Decisions (Ledger vocabulary) | added | Mechanics landed with issue 04: hash-chained ledger (`record_event`/`read_ledger`), registry acts mint lifecycle lines, `room tail` streams |
 
 ## 2. PEER contract (`plugins/room/contracts/PEER.md`)
 

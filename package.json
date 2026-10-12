@@ -9,6 +9,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --test \"test/*.test.mjs\"",
+    "room": "node plugins/room/cli/room.mjs"
   }
 }

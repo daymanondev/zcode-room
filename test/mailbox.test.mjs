@@ -33,7 +33,15 @@ test("initialize handshake and tool surface", async () => {
   const tools = await server.listTools();
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    ["post_message", "read_mailbox"]
+    [
+      "post_message",
+      "read_mailbox",
+      "register_seat",
+      "retire_seat",
+      "lookup_seats",
+      "record_event",
+      "read_ledger",
+    ]
   );
   await server.close();
 });

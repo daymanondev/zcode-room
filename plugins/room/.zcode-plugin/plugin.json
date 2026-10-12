@@ -1,7 +1,7 @@
 {
   "name": "room",
-  "version": "0.1.0",
-  "description": "SLP room on ZCode: the out-of-band mailbox (MCP post/read, addressed by seat) backed by the workspace room-state directory.",
+  "version": "0.2.0",
+  "description": "SLP room on ZCode: the out-of-band mailbox (MCP post/read, addressed by seat), the seat registry, and the append-only closure-loop ledger, backed by the workspace room-state directory.",
   "author": { "name": "Andrew Pham" },
   "license": "MIT",
   "skills": "skills",

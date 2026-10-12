@@ -110,6 +110,8 @@ export class McpClient {
   }
 
   async close() {
+    if (this.closed) return { code: this.child.exitCode };
+    this.closed = true;
     this.child.stdin.end();
     await new Promise((resolveExit) =>
       this.child.once("exit", (code, signal) => resolveExit({ code, signal }))

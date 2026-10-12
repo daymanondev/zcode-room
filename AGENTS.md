@@ -93,9 +93,10 @@ seat) exists only for the links the harness lacks — peer ↔ sibling peer,
 and escalation upward past the parent — and must not become the primary
 channel.
 
-**Audit.** Every brief → response → disposition is recorded, append-only.
-(Mechanics land with the registry/ledger ticket; until then the Lead's run
-notes carry the record.)
+**Audit.** Every brief → response → disposition is recorded, append-only,
+in the room ledger. (Mechanics: the plugin's ledger and registry —
+`record_event` and `read_ledger` for the loop, `register_seat` /
+`retire_seat` / `lookup_seats` for seats; watch live with `room tail`.)
 
 ## Agent skills
 
