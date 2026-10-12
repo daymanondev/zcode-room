@@ -309,7 +309,8 @@ Remaining wall: the standalone server's provider registry stays empty
 (`model.available: []`; `setModel` → 「Provider Registry 中不存在 Model」).
 Untried leads: `v4/connection`, `server/discover`, `agent/configs`. *(All
 superseded 2026-10-12 by §10: the env pair was tried and is irrelevant —
-the registry constructs either way; entitlement is the wall.)*
+the registry constructs either way; entitlement is the wall. §10.4's
+follow-up leads are in turn resolved by §11.)*
 
 ### 9.5 Canon correction (retraction of §6's earlier framing)
 
@@ -417,6 +418,51 @@ Re-verify (condensed; full steps in the evidence base): binary sha still
 `model.available: []` and `provider_registry.ready` with `entitled:false` ×8,
 `providerCount: 0`; if `model.available` is non-empty, the wall cracked —
 rerun `--prompt` and update §9.3/§10 and ADR 0001.
+
+---
+
+## 11. Entitlement crack (2026-10-12, issue 14): host-role push — the wall falls in-band
+
+Full grade-A evidence + mechanism trace:
+[entitlement-crack-2026-10-12.md](entitlement-crack-2026-10-12.md). Binary
+re-verified byte-identical (`fad4c35c…`) before probing.
+
+1. **`entitled` has exactly three writers** (B, exhaustive bundle trace):
+   the fail-closed boot snapshot every `app-server`/`agent-server` registry
+   starts with (both dispatch to the same host-mode `Ykt` — the agent-server
+   offers no different model surface, confirmed live); a standalone
+   `--prompt`/`tui`-only local snapshot computed from two credential keys
+   (`:identity` + `:api-key`; this machine has only the latter — why
+   `--prompt` also fails, and what `zcode login` would fix); and the protocol
+   method **`provider/updateAccountConfig`** — the host push the desktop uses.
+2. **The crack (A)**: a client playing the host role pushes
+   `{revision, basedOnZCodeBuiltinRevision: "zcode-builtin:30:<sha256 of the
+   resolved active catalog PATH>", providers, states}` over stdio; subsequent
+   `session/create` returns a populated `model.available` and a resolved
+   `session.model`; per model request the client answers
+   `interaction/requestProviderRuntimeHeaders` with the decrypted coding-plan
+   api-key from the shared store. Proven end to end: standalone session →
+   `"OK"` on `account:zai-individual-coding-plan/GLM-5.3` (~40.7k tokens real
+   usage).
+3. **Corrections to earlier sections**: §9.4's remaining-wall note is
+   superseded — `setModel` failing with 「Provider Registry 中不存在 Model」
+   was a symptom of the empty registry, not a second wall. §9.1's "the same
+   runtime the desktop runs" is right about the tree
+   (`ZCode → zcode-host-local-1 → zcode-cli` children on stdio socketpairs)
+   but the host itself runs `app.asar` code, and no external listener exists
+   (A/B, crack doc §4). §10.4's follow-up leads are all now resolved
+   (agent-server = same wall; entitlement source = host push; `zcode login` =
+   optional convenience, still Human-gated).
+4. **The M0 blocker is gone** (C for plans, A for the mechanism — crack doc
+   §6): the Supervisor can spawn Leads as standalone
+   `app-server` children and drive them as their protocol host — no desktop
+   dependency, no upstream fix, no shared-state mutation. Design constraint
+   for the room: the host role must own the revision string (recomputed when
+   the catalog/endpoint moves) and the per-request header replies.
+
+Re-verify before building on this: binary sha still `fad4c35c…` → baseline
+create still `model.available: []` → push still `providerCount:1` +
+turn completes (full steps in the crack doc's Re-verify section).
 
 ---
 

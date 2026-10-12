@@ -14,9 +14,13 @@ provides the out-of-band peer bus).
 - ZCode internals used here are an undocumented private surface (hidden CLI
   `zcode.cjs`, `app-server` protocol). Every dependency on it records: the
   observed app version, the exact invocation, and a re-verify step.
-- The one open blocker is the standalone model-resolution wall — see
-  [research/zcode-slp-feasibility.md](research/zcode-slp-feasibility.md) §9.3/§9.4
-  before designing around spawning.
+- The standalone model-resolution wall is cracked in-band (2026-10-12,
+  issue 14): a protocol client playing the host role pushes
+  `provider/updateAccountConfig` and answers
+  `interaction/requestProviderRuntimeHeaders` — see
+  [research/entitlement-crack-2026-10-12.md](research/entitlement-crack-2026-10-12.md)
+  and feasibility §11 before designing around spawning; re-verify on any
+  binary where `zcode.cjs` sha256 ≠ `fad4c35c…`.
 
 ## SLP room protocol
 

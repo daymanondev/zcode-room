@@ -3,9 +3,10 @@
 **Status: DRAFT — do not file without the Human.** Channel TBD (no public
 issue tracker for ZCode is known to us; the Human picks where/how to report).
 
-Evidence base: [wall-probe-2026-10-12.md](wall-probe-2026-10-12.md) (grade-A
-transcripts) + feasibility §9.3. Everything under Summary / Repro / Evidence
-is live-observed (grade A) on:
+Evidence base: [wall-probe-2026-10-12.md](wall-probe-2026-10-12.md) and
+[entitlement-crack-2026-10-12.md](entitlement-crack-2026-10-12.md) (grade-A
+transcripts) + feasibility §9.3/§11. Everything under Summary / Repro /
+Evidence is live-observed (grade A) on:
 
 - ZCode.app 3.14.5, CLI 0.16.9, macOS darwin-arm64
 - `zcode.cjs` sha256 `fad4c35c4c36ec210d8a06d3fa0e77de23c8545e2eb6ff90aea1eb38d1e6275f`
@@ -67,22 +68,37 @@ fails at `model_creation`.
    holds valid credentials (§3). So the gap is the entitlement/account
    handshake, not file access.
 
-## Diagnosis hint (grade B — from reading the shipped bundle, de-minified; not live-observed)
+## Diagnosis hint (grade B — from reading the shipped bundle, de-minified; the push path is additionally live-observed, grade A)
 
-`prepareCliProviderRuntimeEnv` intends `--prompt`/`--target`/`tui`/
-`app-server`/`agent-server`/`login`/`logout` to self-populate the provider
-env (builtin from `<entrypoint-dir>/provider/zcode-builtin.json` or the
-SEA asset; personal from `<dataBaseDir>/.zcode/v2/provider_config.json`),
-yet the registry still reports builtin r30 loaded at baseline with no env
-set — and entitlement never flips. Whatever the desktop drives to mark the
-account entitled (an entitlement/refresh call, or an account source only the
-app constructs) is missing from the standalone boot.
+`app-server`/`agent-server` registries boot **fail-closed**: every
+`account:*` provider starts `entitled:false` and nothing standalone ever
+flips it — only a protocol client playing the host role can, via
+`provider/updateAccountConfig` (which `app-server`/`agent-server` accept by
+design; the standalone `--prompt`/`tui` branch explicitly refuses host
+pushes). The `--prompt`/`tui` path *does* have a local entitlement snapshot,
+but it requires both credential keys —
+`account-provider:<id>:identity` **and** the `…:api-key` — while the
+credential store on this machine holds only the api-key (live key-census,
+grade A), so `--prompt` fails too.
+The desktop app never hits either path because it pushes its own
+availability-check results down to its session processes.
+
+We verified the host-role workaround end to end (grade A): push
+`provider/updateAccountConfig` with
+`basedOnZCodeBuiltinRevision: "zcode-builtin:30:<sha256 of the resolved
+active catalog path>"` + `states[<provider>].current: true`, then answer
+`interaction/requestProviderRuntimeHeaders` with the account api-key —
+after which `model.available` populates and turns complete on the account
+plan, in a fully standalone process.
 
 ## Ask
 
 Either (a) standalone sessions should complete the account-entitlement
 handshake using the shared `~/.zcode/v2/` state the desktop already
-maintains, or (b) headless surfaces should expose an explicit model
-selection (flag / protocol field) that bypasses the entitlement-derived
-`available` list. Today headless ZCode is unusable for any account-plan
-user, which blocks scripted/automation workflows built on the shipped CLI.
+maintains (for `--prompt`/`tui`, writing/preserving the `:identity`
+credential key on desktop login would be enough), or (b) headless surfaces
+should expose an explicit model selection (flag / protocol field) that
+bypasses the entitlement-derived `available` list. Today headless ZCode
+cannot self-entitle for any account-plan user, which blocks
+scripted/automation workflows built on the shipped CLI unless they
+re-implement the host half of the private protocol.
