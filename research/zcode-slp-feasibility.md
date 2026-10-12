@@ -172,7 +172,10 @@ questions route through the root session to the Human, which is the
    yes; untested.)
 3. Custom subagent types (`~/.zcode/agents/<name>.md`) — could formalize
    PEER.md dispositions (Engineer/Architect/Reviewer/Scout) as named types;
-   unexplored.
+   unexplored. *(2026-10-11 addendum, B: a literal-path grep of the bundle
+   finds `.zcode/workflows` and `.zcode/config` but no `.zcode/agents`
+   segment — the loader is not confirmed compiled in; cheap probe: create one
+   type file and see if the Agent tool offers it.)*
 4. Does Topology A survive app restarts at all — are agent IDs resumable
    across sessions?
 
@@ -304,7 +307,9 @@ key (`{id, method, params}`; server→client requests carry ids like
 
 Remaining wall: the standalone server's provider registry stays empty
 (`model.available: []`; `setModel` → 「Provider Registry 中不存在 Model」).
-Untried leads: `v4/connection`, `server/discover`, `agent/configs`.
+Untried leads: `v4/connection`, `server/discover`, `agent/configs`. *(All
+superseded 2026-10-12 by §10: the env pair was tried and is irrelevant —
+the registry constructs either way; entitlement is the wall.)*
 
 ### 9.5 Canon correction (retraction of §6's earlier framing)
 
@@ -330,6 +335,88 @@ codex-room. The 1-1 mapping this file's §5 table should grow:
 The temporary provider config containing the proxy API key was deleted
 immediately after use. ~10 idle, 0-token junk sessions remain in
 `~/.zcode/cli/db/db.sqlite` from probing (ignorable).
+
+### 9.7 Registry env-pair finding (2026-10-11, bundle re-read; binary unchanged)
+
+Re-verified the binary is byte-identical to the substrate scout's record
+(sha256 `fad4c35c…`, mtime 2026-09-30, app 3.14.5 / CLI 0.16.9 — A via
+`shasum`/`stat`), so §9.3's live findings stand. A fresh read of the
+registry-bootstrap code (B — compiled bundle) refines two earlier claims:
+
+- **The §9.3 env injections failed mechanically, not for lack of wiring.**
+  The path resolver (verbatim, de-minified as `ymr(env)`) requires
+  `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` and
+  `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE` **as a pair**: exactly one set →
+  throw (「ZCode Built-in 与 Personal Provider Config 路径必须同时提供」,
+  "the two paths must be provided together"); neither set → `null`; and the
+  caller (de-minified `Ykt(env, opts)`) throws on `null` with the
+  「缺少进程 Provider Registry 的 … 路径」 string. Single-var injection, as
+  §9.3 attempted, could never populate the registry — the **pair** is the
+  untried configuration.
+- **A third, standalone-only var exists**: `ZCODE_BUILTIN_PROVIDER_
+  BUNDLED_CONFIG_FILE`, read only when `opts.standalone` is set, alongside a
+  standalone `credentialStore` constructed from env. Whether `Ykt` is the
+  exact code path a `--prompt`/`app-server` runtime takes is inferred (B/C);
+  the env-pair contract itself is verbatim.
+- **`v4/connection` is not a literal in the bundle** (only `"v4/command"`
+  appears); §9.4's v4 family must come from live observation or dynamic
+  construction. The discovery method with heavy literal presence is
+  `server/discover` (14 hits). Re-weight §9.4's untried leads: env pair
+  first, `server/discover` second, v4 family last.
+
+Re-verify: `shasum -a 256 /Applications/ZCode.app/Contents/Resources/glm/
+zcode.cjs` → `fad4c35c…`; then the wall ticket's live probe — spawn with the
+env **pair** set (builtin catalog + personal `~/.zcode/v2/config.json`-shaped
+file) and check `model.available` over `app-server --stdio`.
+
+*(Probe executed 2026-10-12 — §10; the pair-refutation hypothesis above was
+itself refuted: the registry constructs identically with and without the
+pair, and the actual gate is account entitlement, not config paths.)*
+
+---
+
+## 10. Wall probe result (2026-10-12): env pair tried — entitlement is the wall
+
+Full grade-A evidence: [wall-probe-2026-10-12.md](wall-probe-2026-10-12.md);
+upstream bug-report draft (not filed): [upstream-bug-report-draft.md](upstream-bug-report-draft.md).
+Binary re-verified byte-identical (`fad4c35c…`) before probing.
+
+1. **The env pair is tried and refuted** (A). `--prompt` with
+   `ZCODE_BUILTIN_PROVIDER_CONFIG_FILE` (the desktop's active builtin
+   catalog, revision 30) + `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE`
+   (`~/.zcode/v2/provider_config.json`) fails exactly as baseline does:
+   `Error: Model creation failed` ← `Select a model before continuing`.
+   Over `app-server --stdio`, `session/create` returns
+   `"model":{"available":[]}` with and without the pair (and with the
+   standalone `ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE` var added);
+   `session/setModel` still answers 「Provider Registry 中不存在 Model」.
+2. **The registry was never the part that failed to load** (A). Every
+   standalone run logs `zcode_protocol.provider_registry.ready`: builtin
+   revision 30 loaded, all eight `account:*` providers enumerated — every
+   one `"entitled":false`, `providerCount: 0`. The event is identical
+   between baseline and env-pair runs. §9.3's "standalone paths lack the
+   registry wiring" was half-right for the wrong reason: construction
+   works; the **account-entitlement handshake** does not complete.
+3. **Credentials are decryptable standalone** (A): the credential cipher has
+   no Keychain dependency (`ZCODE_CREDENTIAL_SECRET` or a deterministic
+   platform/home/username fallback), and every field of
+   `~/.zcode/v2/credentials.json` — including the coding-plan api-key —
+   decrypts in a plain node process. The gap is whatever flips
+   `entitled:true`, not file access.
+4. **Lead re-weighting** (A/B): `server/discover` is **not** an app-server
+   method (live `-32601 Method not found`; in the bundle it sits in an
+   MCP-dialect schema family). The hidden `agent-server` subcommand runs and
+   speaks its own protocol (unprobed). Follow-up scoped as
+   [ticket 14](../.scratch/room/issues/14-standalone-entitlement-handshake.md):
+   the standalone account-source/entitlement refresh path, `agent-server`,
+   and — Human-gated, since it mutates shared login state — whether
+   `zcode login` from the CLI itself flips entitlement.
+
+Re-verify (condensed; full steps in the evidence base): binary sha still
+`fad4c35c…` → rerun pair + `app-server` create → expect
+`model.available: []` and `provider_registry.ready` with `entitled:false` ×8,
+`providerCount: 0`; if `model.available` is non-empty, the wall cracked —
+rerun `--prompt` and update §9.3/§10 and ADR 0001.
 
 ---
 
