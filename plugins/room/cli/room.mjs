@@ -1,20 +1,30 @@
 #!/usr/bin/env node
-// room — the SLP room's terminal wrapper (issue 04: `tail`).
+// room — the SLP room's terminal wrapper (issue 04: `tail`; issue 07:
+// `doctor`, `lead`).
 //
-// Read-only: the wrapper observes the room-state directory the MCP server
-// writes; it never writes anything itself. Later issues grow more
-// subcommands here (doctor, spawn, board).
+// `tail` observes the room-state directory the MCP server writes.
+// `doctor` re-verifies the pinned private ZCode surface (zero model
+// calls). `lead` spawns and re-pokes headless Lead sessions through the
+// app-server control plane, playing the protocol host role.
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { runDoctor } from "./doctor.mjs";
+import { LEAD_USAGE, LeadUsageError, runLeadCommand } from "./lead.mjs";
 
 const USAGE = `room — the SLP room's terminal wrapper
 
 Usage:
-  room tail [--state-dir <dir>]   Stream ledger and mailbox events live:
-                                   existing history first, then new events
-                                   as the room runs. Ctrl-C to stop.
+  room doctor                    Re-verify the pinned private surface
+                                  (binary hash + version, catalog revision
+                                  gate, credentials, live entitlement path)
+                                  and report go/no-go. Zero model calls.
+  room lead …                    Dispatch and re-poke headless Lead
+                                  sessions ("room lead" for details).
+  room tail [--state-dir <dir>]  Stream ledger and mailbox events live:
+                                  existing history first, then new events
+                                  as the room runs. Ctrl-C to stop.
 
 The state dir comes from --state-dir, else ROOM_STATE_DIR, else <cwd>/.room —
 the same resolution the MCP server uses. Looking never disturbs: tail only
@@ -218,6 +228,29 @@ function runTail(stateDir) {
 }
 
 function main() {
+  const [subcommand, ...rest] = process.argv.slice(2);
+  if (subcommand === "doctor") {
+    if (rest.length > 0) {
+      process.stderr.write(`doctor takes no arguments\n\n${USAGE}`);
+      process.exit(2);
+    }
+    runDoctor()
+      .then((go) => process.exit(go ? 0 : 1))
+      .catch((error) => {
+        process.stderr.write(`doctor failed: ${error.message}\n`);
+        process.exit(1);
+      });
+    return;
+  }
+  if (subcommand === "lead") {
+    runLeadCommand(rest, { resolveStateDir })
+      .then(() => process.exit(0))
+      .catch((error) => {
+        process.stderr.write(`${error.message}\n\n${LEAD_USAGE}`);
+        process.exit(error instanceof LeadUsageError ? 2 : 1);
+      });
+    return;
+  }
   let parsed;
   try {
     parsed = parseArgs(process.argv.slice(2));
@@ -230,7 +263,7 @@ function main() {
     return;
   }
   process.stdout.write(USAGE);
-  process.exit(parsed.subcommand === undefined || ["--help", "-h", "help"].includes(parsed.subcommand) ? 0 : 2);
+  process.exit(subcommand === undefined || ["--help", "-h", "help"].includes(subcommand) ? 0 : 2);
 }
 
 main();

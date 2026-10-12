@@ -41,5 +41,21 @@ Domain terms for the SLP room on ZCode. Sources: the SLP contracts in
 - **Registry** — the room's answer to "who holds which seat in this room".
 - **The wall** — the standalone model-resolution blocker in ZCode's private
   surface (feasibility §9.3/§9.7).
+- **Host role** — the protocol role the desktop plays to its session
+  children: pushes the entitlement snapshot
+  (`provider/updateAccountConfig`), answers per-request runtime headers
+  (`interaction/requestProviderRuntimeHeaders`). The wrapper plays it to
+  its own spawned `app-server` children — the entitlement crack (issue 14).
+- **Wrapper** — `room`, the terminal CLI over the room: `tail` (observe),
+  `doctor` (re-verify the pinned private surface), `lead` (dispatch and
+  re-poke headless Lead sessions).
+- **Doctor** — `room doctor`: go/no-go re-verification of the pinned
+  binary hash, CLI version, catalog revision gate, credentials, and the
+  live entitlement path — zero model calls.
+- **Pin** — the recorded hash/version/invocation of the private ZCode
+  surface a build depends on, plus its re-verify step (AGENTS rule).
+- **Re-poke** — resuming a Lead's persisted session with a new message,
+  giving a stalled or continuing Lead one more context-full turn
+  (`room lead send`).
 - **Lane economics** — treating quota cost as a first-class routing
   criterion: cheap lanes for cheap work, the idle lane for off-peak work.

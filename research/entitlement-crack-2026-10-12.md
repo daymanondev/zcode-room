@@ -249,3 +249,47 @@ to its own spawned `app-server` children.
 4. If step 3 fails on a future build: re-read `CGt`/`FHo`/`XZo` and the
    revision computation (`T3i` + path hash) in the new bundle — the gate most
    likely to move is the revision string.
+
+## 7. Re-verify on 3.15.1 / `b816e386…` (2026-10-12, issue 07 — PASSED, two shapes moved)
+
+The app updated the same day (bundle bytes moved off `fad4c35c…`; CLI
+string stayed 0.16.9; builtin catalog r31 under
+`~/.zcode/v2/runtime/provider/darwin-aarch64/3.15.1/endpoint-78d7c3…/`),
+triggering the AGENTS re-verify rule. All grade A, live:
+
+1. **The crack holds unchanged in its core**: revision string
+   `zcode-builtin:31:ec9896369533c337b132330177fdd44af502bf93f828a801235f35e47a1269e9`
+   (same path-hash formula — it reproduces the recorded 3.14.5 value
+   `32241904…` exactly), baseline create → `model.available: []`, push →
+   `providerCount:1`, create#2 resolves
+   `account:zai-individual-coding-plan/GLM-5.3`, real turn completed with
+   header replies answered from the decrypted key. This re-verify is now
+   mechanized as `room doctor` (zero model calls; the create→push→create
+   ladder).
+2. **Protocol shapes that moved** (both cost one live turn to find):
+   - `session/requestRuntimePreferences` scope `user-execution` now wants
+     exactly `{nativeSearchEnhancementsEnabled: boolean}` — the
+     `modelSelection`/`permissionMode` reply §9.4 observed on 3.14.5 is
+     zod-rejected ("Unrecognized keys"), and the turn then dies
+     server-side **with no notification to the client** (verbatim trail:
+     `~/.zcode/cli/log/zcode-2026-10-12.jsonl`, `sess_38002d5b…`:
+     `runtime_preferences.request_failed` → "background turn failed",
+     durationMs 1).
+   - Subscribers (`session/subscribe`, desktop-continuous) receive
+     streaming `session/event` notifications but **no `turn.*` methods**
+     on any path observed (bundle literals exist; not delivered here).
+     Turn end must be read from state: the final assistant entry in
+     `session/messages` — entries are `{info: {role, time: {created,
+     completed}, finish, tokens…}, parts: [{type:"text", text}, …]}`, and
+     mid-turn entries ALSO carry `time.completed` with
+     `finish:"tool-calls"` — only `finish:"stop"` is the turn's end.
+3. **Session persistence is turn-gated**: a `session/create` that never
+   sends leaves no db row (all zero-turn probe sessions: absent from
+   `db.sqlite`; the crack-era sessions with turns: present). Resume
+   (`session/resume {sessionId}`) works cross-process for persisted
+   sessions; `session/create` ignores a `mode` param (`session/setMode`
+   {sessionId, mode} is the lever; enum adds `guarded`/`auto` on this
+   build).
+4. Cost of this re-verify: four real model turns total across probing
+   (~187k input tokens, plan lane), two of them burned on the shape
+   changes above before the consolidated log named the cause.

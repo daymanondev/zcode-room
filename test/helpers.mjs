@@ -7,6 +7,26 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createCipheriv, createHash } from "node:crypto";
+
+// Encrypt with the credential cipher the crack documented (enc:v1,
+// AES-256-GCM, key sha256(secret)) — used to build synthetic stores.
+export function encryptCredential(plain, secret) {
+  const iv = Buffer.alloc(12, 7);
+  const key = createHash("sha256").update(secret).digest();
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return `enc:v1:${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${ciphertext.toString("base64url")}`;
+}
+
+// Read a jsonl file written append-only (the fake app-server's request
+// log): every non-empty line parsed.
+export function readJsonl(path) {
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
 
 export const PLUGIN_ROOT = new URL("../plugins/room", import.meta.url).pathname;
 export const SERVER_PATH = new URL("../plugins/room/server/mcp-server.mjs", import.meta.url)

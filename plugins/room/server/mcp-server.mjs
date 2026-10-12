@@ -34,7 +34,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const SERVER_NAME = "room";
-const SERVER_VERSION = "0.2.0";
+// Tracks the plugin version (plugin.json); the MCP tool surface is
+// unchanged since 0.2.0 (0.3.0 grew the wrapper CLI only).
+const SERVER_VERSION = "0.3.0";
 // Latest revision the bundle is known to negotiate — all four 2024-10-07 …
 // 2025-06-18 revisions appear in zcode.cjs 0.16.9 (grade B, bundle-read);
 // unknown requests fall back to this one.

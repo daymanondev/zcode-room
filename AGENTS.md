@@ -13,14 +13,19 @@ provides the out-of-band peer bus).
   every claim ([README](README.md) conventions).
 - ZCode internals used here are an undocumented private surface (hidden CLI
   `zcode.cjs`, `app-server` protocol). Every dependency on it records: the
-  observed app version, the exact invocation, and a re-verify step.
+  observed app version, the exact invocation, and a re-verify step. The
+  wrapper's pins live in `plugins/room/cli/pins.mjs`; `room doctor`
+  re-verifies them without model calls. Current pin (2026-10-12): app
+  3.15.1, `zcode.cjs` sha256 `b816e386…`, CLI string 0.16.9, builtin
+  catalog r31 (`zcode-builtin:31:ec989636…`).
 - The standalone model-resolution wall is cracked in-band (2026-10-12,
   issue 14): a protocol client playing the host role pushes
   `provider/updateAccountConfig` and answers
   `interaction/requestProviderRuntimeHeaders` — see
   [research/entitlement-crack-2026-10-12.md](research/entitlement-crack-2026-10-12.md)
+  (§3 the crack; §7 the 3.15.1 re-verify, where two protocol shapes moved)
   and feasibility §11 before designing around spawning; re-verify on any
-  binary where `zcode.cjs` sha256 ≠ `fad4c35c…`.
+  binary where `zcode.cjs` sha256 ≠ `b816e386…`.
 
 ## SLP room protocol
 

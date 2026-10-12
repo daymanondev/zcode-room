@@ -463,6 +463,9 @@ re-verified byte-identical (`fad4c35c…`) before probing.
 Re-verify before building on this: binary sha still `fad4c35c…` → baseline
 create still `model.available: []` → push still `providerCount:1` +
 turn completes (full steps in the crack doc's Re-verify section).
+*(Executed 2026-10-12, issue 07 — the binary had moved to 3.15.1 /
+`b816e386…`; the re-verify PASSED with two protocol shapes changed, now
+mechanized as `room doctor` + the wrapper: crack doc §7.)*
 
 ---
 
