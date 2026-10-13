@@ -9,7 +9,11 @@ ledger, and the first wrapper command (`room tail`); issue 07 the wrapper's
 `doctor` and `lead` verbs (private surface re-verification, and headless
 Lead dispatch over the control plane); issue 08 the `/slp` skill and the
 enforced one-supervisor arming; issue 09 per-role model defaults in the
-committed room config, applied per spawn through `session/setModel`.
+committed room config, applied per spawn through `session/setModel`;
+issue 10 the heartbeat wake machinery — the zero-judgment gate the wake
+runs (`room heartbeat`) plus the wake/re-poke/answer-routing procedures
+in the `/slp` skill; auto-arming is parked on the Human's cost decision
+(the live probe showed why: below).
 
 ## Components
 
@@ -85,6 +89,30 @@ committed room config, applied per spawn through `session/setModel`.
     gone and the wrapper says so. Resume keeps the spawn-time lane —
     `--model` is spawn-time only and refused here.
   - `lead list` — show recorded Lead sessions.
+  - `heartbeat [--stall-after-ms <n>]` — the wake gate a Supervisor
+    heartbeat automation runs at every fire (issue 10). Zero model
+    calls,
+    zero judgment: one verdict over the registry (no live supervisor →
+    `orphaned` — the automation is a leftover; the wake removes it where
+    the host offers a delete tool and otherwise self-flags once
+    (NEEDS-HUMAN naming title and id — removal is the Human's click in
+    the app's Automations page; observed live 2026-10-13, app 3.15.1:
+    the session surface carries CronCreate and CronList but no delete), the supervisor's mailbox (unread escalations, **peeked not
+    consumed** — the consuming `read_mailbox` belongs to the wake after
+    the relay has landed in chat, so a crashed wake turn cannot lose an
+    escalation), and open Lead loops (`stalled` when briefs sit recorded
+    since the seat's last `handoff_received` and the newest is older than
+    the threshold — default 35 min, the wrapper's 30-min turn timeout
+    plus margin; `--stall-after-ms` overrides). A stall is
+    `re-poke eligible` exactly once: the re-poke itself is a
+    `brief_sent` whose detail begins `re-poke` (the string the skill
+    prescribes — an answer-routing brief never spends the budget), so
+    the gate's next verdict reads `already re-poked, needs Human`
+    mechanically — the once-guarantee is the ledger, not a promise. A
+    tampered ledger surfaces as a chain-break alarm and skips the stall
+    math (untrusted lines must not drive a re-poke). Everything else is
+    `quiet`. The acting procedure (relay, record, consume, re-poke,
+    answer routing) lives in the `/slp` skill; the gate only reports.
   - Turn-end detection: this surface delivers no `turn.*` notifications
     to subscribers (crack doc §7.2), so the wrapper polls
     `session/messages` for the turn's final assistant entry
@@ -103,7 +131,15 @@ committed room config, applied per spawn through `session/setModel`.
   never only a Lead's summary), privacy firewall on Lead-facing messages,
   advice-to-the-Lead, the append-only notebook — plus the dispatch,
   relay-on-notification, and explicit-retire procedures for Leads run
-  through the wrapper.
+  through the wrapper, and (issue 10) the heartbeat wake machinery: the
+  gate, the wake procedure, the once-only re-poke, and the answer
+  routing — with auto-arming parked on the Human's cost decision
+  (2026-10-13): a heartbeat automation is created only on the Human's
+  explicit instruction, with CronList dedup (title
+  `SLP supervisor heartbeat …`), its removal surfaced at retire (by
+  CronDelete where offered; else NEEDS-HUMAN naming it for the
+  Automations page), and an orphaned wake self-flagging once per
+  session.
 - `contracts/WORKSPACE-PROTOCOL.md` — the shared protocol block, carried in
   the build repo's AGENTS.md and droppable into a target repo's workspace
   instructions.
@@ -156,8 +192,9 @@ writing.
 
 ## Private-surface dependency (AGENTS.md rule)
 
-Two dependencies, both pinned in `plugins/room/cli/pins.mjs` and
-re-verified by `room doctor` without model calls.
+Four dependencies. 1 and 2 are pinned in `plugins/room/cli/pins.mjs` and
+re-verified by `room doctor` without model calls; 3 and 4 are behavioral
+assumptions pinned here with their failure modes.
 
 **1. The MCP launch** uses ZCode's bundled plugin-host mechanism, the same
 form every official plugin's manifest uses (grade A: observed across all
@@ -211,6 +248,37 @@ successor name. Re-verify: the next live `/slp` in a fresh session after
 the 0.4.0 UI reinstall (arming in-app, then re-invoking `/slp` in the
 same session must return `already: true`, not a refusal).
 
+**4. The host scheduling surface** (issue 10): the heartbeat rides the
+host's session-level automations — not the hidden CLI. Pinned behavior
+(grade A: feasibility §8 probes, observed 2026-10-10; re-observed live
+in this build 2026-10-13, issue 10): root-side `CronCreate` with a
+5-field cron (`*/2 * * * *` works as every-2-minutes) queues future
+**main-level wakes** into the creating session that survive app
+restarts; a fire arriving mid-turn is delivered at the next turn
+boundary (observed: three wakes queued behind one long turn, each
+delivered and handled in order). The session surface on this host
+(app 3.15.1) carries `CronCreate` and `CronList` but **no delete** —
+removal is the Human's click in the app's Automations page, so the
+retire step and the orphaned wake surface the exact title and id as
+NEEDS-HUMAN instead of pretending a delete happened; sub-agents do not
+see these tools (absent from their enumerated surface), so only the
+Supervisor session can arm the heartbeat — which is the topology
+working as designed. The wake prompt is self-contained by contract
+(the automated run may carry none of the arming session's context) and
+bakes an absolute plugin-cache path, which moves on plugin **version**
+updates — failure mode: a stale automation wakes with a dead gate path;
+the wake must then say so (and re-arming `/slp` refreshes the
+automation with the current path). The live probe's cost finding
+(2026-10-13, grade A): a `*/2` recurring wake is one model turn + one
+UI card per fire — 12 orphaned fires piled up in ~25 minutes after the
+probe room retired, with no session-side off-switch — so auto-arming is
+**parked on the Human's cost decision**; the skill creates an
+automation only on explicit instruction (the Human's lean: a
+dispatch-scoped lease — created at dispatch, slower cadence,
+`maxRuns`-bounded so orphans self-extinguish). Re-verify: `CronList`
+shows the automation while one is instructed; after retire, the removal
+request names it and the Automations page shows it gone.
+
 ## Versioning note
 
 0.1.0 shipped the mailbox; 0.2.0 adds registry, ledger, and `room tail`;
@@ -220,7 +288,10 @@ one-supervisor arming in `register_seat` (the first MCP behavior change —
 a second live supervisor is now refused, not warned); 0.5.0 adds
 per-role model routing (issue 09): the committed room config, spawn-time
 `setModel`, the `--model` override, and per-turn usage in `leads.json`
-(wrapper-side only — the MCP tool surface is again unchanged). A ZCode
+(wrapper-side only — the MCP tool surface is again unchanged); 0.6.0 adds
+the heartbeat fallback (issue 10): the `room heartbeat` gate and the
+wake/automation procedures in the `/slp` skill (again wrapper- and
+skill-side only — the MCP tool surface is unchanged). A ZCode
 session sees
 only the tools of the plugin
 version it loaded at start (grade A: observed 2026-10-12, issue 01 — a
@@ -277,4 +348,11 @@ issued without config) plus the doctor setModel PASS line; the fake's
 registry mirrors what the plan actually serves (GLM-5.3 and
 GLM-5.3-Flash only — observed live 2026-10-13) with the observed
 refusals: not-in-registry, "Reasoning level is required", and
-zod-shaped unrecognized keys.
+zod-shaped unrecognized keys. Issue 10 added: `room heartbeat` as real
+state driven through the server over stdio, asserted as both a plain
+function and a CLI subprocess (`test/room-heartbeat.test.mjs` — orphaned
+shapes, quiet, peek-not-consume proven by the cursor staying unborn and
+a later `read_mailbox` still delivering, the once-only re-poke verdict
+from brief counting, handoff closes the loop, retired leads skip stall
+math, no-session stalls hand off to the Human, the tampered-ledger alarm
+with escalations still peeked, and verb wiring/usage exits).

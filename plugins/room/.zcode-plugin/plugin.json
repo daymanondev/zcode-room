@@ -1,7 +1,7 @@
 {
   "name": "room",
-  "version": "0.5.0",
-  "description": "SLP room on ZCode: the out-of-band mailbox (MCP post/read, addressed by seat), the seat registry, the append-only closure-loop ledger, and the Supervisor arming skill (/slp), backed by the workspace room-state directory. The wrapper CLI (room doctor/lead/tail) ships alongside in cli/.",
+  "version": "0.6.0",
+  "description": "SLP room on ZCode: the out-of-band mailbox (MCP post/read, addressed by seat), the seat registry, the append-only closure-loop ledger, and the Supervisor arming skill (/slp) with the */2 heartbeat fallback, backed by the workspace room-state directory. The wrapper CLI (room doctor/lead/heartbeat/tail) ships alongside in cli/.",
   "author": {
     "name": "Andrew Pham"
   },

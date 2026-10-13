@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 // room — the SLP room's terminal wrapper (issue 04: `tail`; issue 07:
-// `doctor`, `lead`).
+// `doctor`, `lead`; issue 10: `heartbeat`).
 //
 // `tail` observes the room-state directory the MCP server writes.
 // `doctor` re-verifies the pinned private ZCode surface (zero model
 // calls). `lead` spawns and re-pokes headless Lead sessions through the
-// app-server control plane, playing the protocol host role.
+// app-server control plane, playing the protocol host role. `heartbeat`
+// is the mechanical wake gate the Supervisor's */2 automation runs.
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { runDoctor } from "./doctor.mjs";
+import { runHeartbeatCheck } from "./heartbeat.mjs";
 import { LEAD_USAGE, LeadUsageError, runLeadCommand } from "./lead.mjs";
 
 const USAGE = `room — the SLP room's terminal wrapper
@@ -20,6 +22,15 @@ Usage:
                                   (binary hash + version, catalog revision
                                   gate, credentials, live entitlement path)
                                   and report go/no-go. Zero model calls.
+  room heartbeat [--stall-after-ms <n>]
+                                  [--state-dir <dir>]
+                                  The wake gate the Supervisor's */2
+                                  automation runs: one verdict (orphaned |
+                                  quiet | action) over the registry, the
+                                  verified ledger, the supervisor mailbox
+                                  (peeked, not consumed), and open Lead
+                                  loops. Zero model calls; the acting
+                                  procedure lives in the /slp skill.
   room lead …                    Dispatch and re-poke headless Lead
                                   sessions ("room lead" for details).
   room tail [--state-dir <dir>]  Stream ledger and mailbox events live:
@@ -27,8 +38,8 @@ Usage:
                                   as the room runs. Ctrl-C to stop.
 
 The state dir comes from --state-dir, else ROOM_STATE_DIR, else <cwd>/.room —
-the same resolution the MCP server uses. Looking never disturbs: tail only
-reads.
+the same resolution the MCP server uses. Looking never disturbs: tail and
+heartbeat only read.
 `;
 
 const POLL_MS = 250;
@@ -41,6 +52,12 @@ function parseArgs(argv) {
     if (rest[i] === "--state-dir") {
       if (i + 1 >= rest.length) throw new Error("--state-dir needs a value");
       options.stateDir = rest[i + 1];
+      i += 1;
+    } else if (rest[i] === "--stall-after-ms") {
+      if (i + 1 >= rest.length) throw new Error("--stall-after-ms needs a value");
+      const n = Number(rest[i + 1]);
+      if (!Number.isInteger(n) || n < 0) throw new Error("--stall-after-ms must be a non-negative integer (ms)");
+      options.stallAfterMs = n;
       i += 1;
     } else {
       throw new Error(`unknown option: ${rest[i]}`);
@@ -260,6 +277,18 @@ function main() {
   }
   if (parsed.subcommand === "tail") {
     runTail(resolveStateDir(parsed.options.stateDir));
+    return;
+  }
+  if (parsed.subcommand === "heartbeat") {
+    try {
+      runHeartbeatCheck({
+        stateDir: resolveStateDir(parsed.options.stateDir),
+        stallAfterMs: parsed.options.stallAfterMs,
+      });
+    } catch (error) {
+      process.stderr.write(`heartbeat failed: ${error.message}\n`);
+      process.exit(1);
+    }
     return;
   }
   process.stdout.write(USAGE);

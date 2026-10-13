@@ -1,6 +1,6 @@
 ---
 name: slp
-description: Arm this chat session as the room's Supervisor (SLP room mode). Use when invoked as /slp, or when the user asks to enter room mode, arm or act as the Supervisor, dispatch a Lead session, relay or audit a Lead run, or retire a Lead. Covers the one-live-supervisor arming rule, background Lead dispatch with completion notification, the ledger-fact relay with NEEDS-HUMAN surfaced, and explicit retirement.
+description: Arm this chat session as the room's Supervisor (SLP room mode). Use when invoked as /slp, or when the user asks to enter room mode, arm or act as the Supervisor, dispatch a Lead session, relay or audit a Lead run, handle a heartbeat wake, or retire a Lead. Covers the one-live-supervisor arming rule, the heartbeat wake machinery (parked auto-arming: created only on the Human's instruction), background Lead dispatch with completion notification, the ledger-fact relay with NEEDS-HUMAN surfaced and the answer routed back by resume, and explicit retirement.
 ---
 
 # Supervisor arming (`/slp`)
@@ -31,6 +31,19 @@ framing, technical decisions, and candidate acceptance.
      they confirm the recorded session is gone, you run `retire_seat` on it,
      then arm a successor name. Never retire a live supervisor on your own
      initiative.
+4. **Heartbeat: do not arm one automatically.** Auto-arming is parked on
+   the Human's cost decision (2026-10-13): the live probe's `*/2`
+   recurring wake cost one model turn + one UI card every 2 minutes —
+   12 orphaned fires in ~25 minutes after the probe room retired, and
+   this host exposes no session-side delete (removal is the Human's
+   click in the Automations page). The machinery below (`room
+   heartbeat`, the wake procedure) stands ready and tested; when the
+   Human rules on the shape — their lean is a dispatch-scoped lease
+   (created at dispatch, slower cadence, `maxRuns`-bounded so orphans
+   self-extinguish) — arming creates it only then, only on the Human's
+   explicit instruction, with `CronList` dedup first (an existing
+   `SLP supervisor heartbeat …` automation is never duplicated). Never
+   create the automation on your own initiative.
 
 The refusal is the one-supervisor rule enforced mechanically: one room, one
 commander, and ownership never changes by silence.
@@ -129,25 +142,142 @@ commander, and ownership never changes by silence.
    observed. Until this line lands, the dispatch's loop is open — say so
    in any later relay rather than letting the audit flag it silently.
 
+## The heartbeat wake
+
+This section governs the wake machinery for whenever a heartbeat
+automation exists — auto-arming is parked on the Human's cost decision
+(§ Arming step 4), so a wake reaches this session only if the Human
+instructed an automation created. A wake fires a turn into this session
+— the fallback for event-coverage gaps (a peer's escalation sitting in
+your mailbox, a dispatch whose notification never landed). A wake is not
+a Human turn: the gate first, judgment only on its verdict.
+
+**When a wake fires**, run exactly one gate before anything else:
+
+```
+node <plugin-root>/cli/room.mjs heartbeat
+```
+
+It spends zero model judgment and prints one verdict. Act on the first
+word:
+
+- **quiet** — end the turn with one short line ("heartbeat: quiet").
+  Nothing else.
+- **orphaned** — no live supervisor holds the seat: this automation is a
+  leftover. If a `CronDelete` tool exists: `CronList`, find the
+  automation whose title starts `SLP supervisor heartbeat`, delete it by
+  id. On hosts without the delete tool, surface it once as NEEDS-HUMAN
+  (exact title and id; removal is the Human's click in the app's
+  Automations page) and stay silent about it on later wakes in this
+  session — after a restart it surfaces once more, per session, which
+  is the accepted bound without durable wake state. Never
+  `CronCreate` from a wake. Say one line.
+- **action** — handle each section, in order:
+  - `ledger: chain break` — an audit alarm. Surface it once as
+    NEEDS-HUMAN (`read_ledger` confirms the break seq); do not act on
+    untrusted lines.
+  - `escalation …` lines — relay each unread message to the Human in chat
+    **now**: a NEEDS-HUMAN line verbatim, with the choice and what follows
+    from each answer; anything else compressed to its ask. Record each
+    with `record_event {type: "needs_human", seat: <message's from>,
+    detail: one line}`, and only after the relay is in chat, consume the
+    box with `read_mailbox {seat: "<your seat>"}` so it cannot re-surface.
+    Never answer an escalation yourself — the Human answers in this chat.
+  - `stalled … → re-poke eligible` — exactly one re-poke, and only from a
+    wake: record `record_event {type: "brief_sent", seat: <lead seat>,
+    detail: "re-poke 1/1 — heartbeat stall recovery (open since #<seq>)"}`
+    **before** sending, then `room lead send <seat> --message -` with a
+    neutral nudge ("the completion notification never landed; continue
+    the brief and report"). One re-poke per stalled loop, never more —
+    the gate enforces it mechanically by counting briefs since the last
+    handoff.
+  - `stalled … → already re-poked` / `→ needs Human` / `no session` —
+    surface the stall to the Human once (the retire-or-redispatch call is
+    theirs); if an earlier wake already surfaced it and the Human has not
+    answered, stay silent about it.
+
+**Routing the Human's answer back.** When the Human answers a relayed
+escalation in chat, the answer travels to the owning Lead by resume, not
+by paraphrase into the void: `room lead send <lead seat> --message -`,
+the message carrying two things — the ruling stated as a project
+instruction with **no attribution** (privacy firewall — no
+Human/Supervisor labels, no "was asked"), and the escalation's
+**substance**: the question the peer asked and the payload needed to act
+on the answer, in the peer's own words where those words carry the
+context (quoting a peer downward is not a firewall breach; quoting the
+Human is). A resumed session has no other way to recover what was asked
+— a verdict alone is not executable (observed live, issue 10: the
+resumed Lead could act on the ruling only after naming exactly this
+envelope gap). Record the routing as
+`record_event {type: "brief_sent", seat: <lead seat>, detail: "answer
+routing: <one line>"}` before sending; the report that comes back closes
+the loop with its own `handoff_received`. If more than one live Lead
+could own the escalation, your relay names them and the Human picks.
+
+**The wake prompt** (the verbatim text arming puts into `CronCreate`;
+fill `<seat>`, `<plugin-root>`, `<state-dir>` at arming time — the
+automated run may have none of this session's context):
+
+```
+SLP supervisor heartbeat (seat <seat>) — wake check.
+
+You act for the room Supervisor named <seat> in this workspace. This wake
+is the fallback for event-coverage gaps; it is not a Human turn.
+
+Run exactly one gate first, no judgment before it:
+
+  node <plugin-root>/cli/room.mjs heartbeat --state-dir <state-dir>
+
+Act on the first word of its output:
+
+- quiet — end the turn with one short line. Nothing else.
+- orphaned — no live supervisor holds <seat>: CronList, find the
+  automation titled "SLP supervisor heartbeat …"; delete it by id if a
+  delete tool exists, else surface it once as NEEDS-HUMAN (exact title
+  and id — removal is the Human's click in the app's Automations page).
+  Never CronCreate from this wake. Say one line.
+- action — follow the /slp skill's "The heartbeat wake" section for the
+  sections printed: relay escalations (NEEDS-HUMAN verbatim) before
+  consuming the mailbox with read_mailbox on <seat>; re-poke a stalled
+  Lead at most once, recording brief_sent before sending; surface audit
+  alarms and exhausted re-pokes to the Human once. The Human answers in
+  chat; route the answer to the owning Lead with room lead send.
+
+Never spend beyond this check: no dispatches, no spawns, no CronCreate.
+```
+
 ## Retiring a Lead — explicit, never by silence
 
 A Lead's ownership ends **only** by an explicit registry act: `retire_seat`
 on its seat, which clears it from the live registry and mints the `retired`
 ledger line. Silence, a timeout, an idle period, a failed turn — none of
-that retires anyone; a stalled Lead gets one re-poke first
-(`room lead send <seat> --message …`, on the Human's instruction — the
-automated heartbeat is another ticket) and only then, with the Human's
-decision, retirement. Retiring after a completed run normally follows the
-loop's closing disposition (§ On the completion notification, step 5), not
-a stall. The wrapper's session map (`room lead list`) is resume history,
-not ownership. Your own seat retires the same way, by the Human's
-explicit instruction.
+that retires anyone; a stalled Lead gets one re-poke first — the heartbeat
+issues it automatically (§ The heartbeat wake), and the Human may instruct
+one at any time with `room lead send <seat> --message …` — and only then,
+with the Human's decision, retirement. Retiring after a completed run
+normally follows the loop's closing disposition (§ On the completion
+notification, step 5), not a stall. The wrapper's session map (`room lead
+list`) is resume history, not ownership.
+
+Your own seat retires the same way, by the Human's explicit instruction —
+and retiring it takes the heartbeat with it: before `retire_seat` on your
+seat, `CronList` the automation titled `SLP supervisor heartbeat …` and
+remove it — by `CronDelete` where the host offers the tool, and where it
+does not (observed live 2026-10-13: no delete on the session surface) by
+surfacing NEEDS-HUMAN with the exact title and id for the Human's click
+in the app's Automations page, and saying the request in your retire
+relay. Never call a seat retired with a live heartbeat unnamed. The
+wake's orphan check is the second line of defense (it self-flags on the
+next fire); retire names it first. If a successor supervisor arms
+afterwards, their arming step 4 creates a fresh heartbeat.
+
+
 
 ## Not yours to build here
 
-The heartbeat/re-poke automation, wrong-seat enforcement beyond the
-supervisor arming, the room board, and teardown are each their own
-tickets — do not improvise them in-room. (Per-role model defaults shipped
-as issue 09: the committed `<state-dir>/room.json` now carries them; edit
-it only on the Human's instruction — lane economics is a cost decision,
-which is the Human's.)
+Wrong-seat enforcement beyond the supervisor arming, the room board, and
+teardown are each their own tickets — do not improvise them in-room. (The
+heartbeat fallback and the once-re-poke shipped as issue 10; per-role
+model defaults shipped as issue 09: the committed `<state-dir>/room.json`
+carries them — edit it only on the Human's instruction — lane economics
+is a cost decision, which is the Human's.)
