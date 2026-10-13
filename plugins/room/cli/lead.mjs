@@ -9,14 +9,23 @@
 // their first completed turn (observed, grade A), so resume is the
 // context-full path for a stalled or continuing Lead.
 //
+// Model selection (issue 09): the committed room config
+// (<state-dir>/room.json) declares the lead role's default lane; the
+// spawn applies it with session/setModel right after create — spawn-time
+// selection only, resume keeps the session's lane. `--model` overrides
+// the default for one dispatch without touching the config (validated
+// against the role's declared menu). With neither, the spawn keeps
+// whatever the registry resolved at create.
+//
 // Permission posture: the session is set to yolo — headless runs have no
 // human to approve prompts, and a permission request reaching the host
 // is denied loudly by the client (fail closed). The contract is the real
 // guardrail; seat enforcement lands with M2 (issue 11).
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { AppServerClient, ProtocolError } from "./appserver.mjs";
+import { formatModelWithLevel, loadRoomConfig, resolveModelSelection, wireModelFor } from "./config.mjs";
 import { PINS, findActiveCatalog, launchAppServer, loadCodingPlanApiKey, readAppVersion } from "./pins.mjs";
 
 // The default revision resolver: an explicit ROOM_BUILTIN_REVISION
@@ -41,11 +50,15 @@ export class LeadUsageError extends Error {}
 export const LEAD_USAGE = `room lead — dispatch and re-poke headless Lead sessions
 
 Usage:
-  room lead new <seat> --workspace <dir> --brief <file|-> [--timeout-ms <n>] [--state-dir <dir>]
+  room lead new <seat> --workspace <dir> --brief <file|->
+      [--model <providerId/modelId>] [--timeout-ms <n>] [--state-dir <dir>]
       Spawn a fresh Lead: LEAD contract + brief in, final report out,
-      session id recorded for resume.
+      session id recorded for resume. The lane comes from the lead role's
+      default in <state-dir>/room.json; --model overrides it for this one
+      dispatch (must be on the role's menu, when one is declared).
   room lead send <seat> --message <file|-> [--timeout-ms <n>] [--state-dir <dir>]
-      Re-poke a recorded Lead: resumes its session with full context.
+      Re-poke a recorded Lead: resumes its session with full context
+      (and its spawn-time lane).
   room lead list [--state-dir <dir>]
       Show recorded Lead sessions.
 `;
@@ -66,6 +79,56 @@ function saveLeads(stateDir, leads) {
   mkdirSync(stateDir, { recursive: true });
   writeFileSync(`${leadsFile(stateDir)}.tmp`, `${JSON.stringify(leads, null, 2)}\n`);
   renameSync(`${leadsFile(stateDir)}.tmp`, leadsFile(stateDir));
+}
+
+// leads.json updates are read-modify-write, and the M2 shape runs
+// parallel Lead dispatches against one state dir — the issue 09 live
+// run caught two concurrent `room lead new` processes clobbering each
+// other's records (each held its copy for the whole turn). The fix:
+// serialize every RMW through a lock dir (mkdir is atomic), with a
+// stale breakout for a crashed holder. The window shrinks from
+// minutes to milliseconds and the outcome becomes correct at any
+// interleaving.
+const LEADS_LOCK_NAME = "leads.lock";
+const LEADS_LOCK_RETRY_MS = 25;
+const LEADS_LOCK_TIMEOUT_MS = 15000;
+const LEADS_LOCK_STALE_MS = 10 * 60 * 1000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function updateLeads(stateDir, mutate) {
+  const lockPath = join(stateDir, LEADS_LOCK_NAME);
+  mkdirSync(stateDir, { recursive: true });
+  const deadline = Date.now() + LEADS_LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      mkdirSync(lockPath);
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      let stale = false;
+      try {
+        stale = Date.now() - statSync(lockPath).mtimeMs > LEADS_LOCK_STALE_MS;
+      } catch {
+        stale = false; // vanished between mkdir and stat — retry
+      }
+      if (stale) {
+        rmSync(lockPath, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`timeout (${LEADS_LOCK_TIMEOUT_MS}ms) waiting for the ${LEADS_LOCK_NAME} lock — another wrapper may be stuck; see ${lockPath}`);
+      }
+      await sleep(LEADS_LOCK_RETRY_MS);
+    }
+  }
+  try {
+    const leads = loadLeads(stateDir);
+    mutate(leads);
+    saveLeads(stateDir, leads);
+  } finally {
+    rmSync(lockPath, { recursive: true, force: true });
+  }
 }
 
 function readInput(path) {
@@ -89,6 +152,7 @@ function parseLeadArgs(argv) {
     if (arg === "--workspace") options.workspace = next();
     else if (arg === "--brief") options.brief = next();
     else if (arg === "--message") options.message = next();
+    else if (arg === "--model") options.model = next();
     else if (arg === "--timeout-ms") {
       options.timeoutMs = Number(next());
       if (!Number.isInteger(options.timeoutMs) || options.timeoutMs <= 0) throw new Error("--timeout-ms must be a positive integer");
@@ -150,13 +214,8 @@ function entryText(entry) {
 }
 
 export function extractFinalReport(messages) {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const entry = messages[i];
-    if (entryRole(entry) !== "assistant") continue;
-    const body = entryText(entry);
-    if (body && body.trim()) return body.trim();
-  }
-  return null;
+  const entry = finalAssistantEntry(messages);
+  return entry ? entryText(entry)?.trim() ?? null : null;
 }
 
 // The turn-end signal on this surface: sessions deliver streaming
@@ -184,8 +243,6 @@ function completedAssistantSince(messages, sinceMs) {
   }
   return null;
 }
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function driveTurn({ client, sessionId, content, timeoutMs, write }) {
   const sendStartedAt = Date.now();
@@ -241,15 +298,29 @@ const BORING_NOTIFICATIONS = [
   /^startup\/storageState$/,
 ];
 
+// The final assistant entry, searched from the newest: the same entry
+// that yields the report also carries the turn's token usage
+// (info.tokens) — the usage evidence leads.json records.
+function finalAssistantEntry(messages) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const entry = messages[i];
+    if (entryRole(entry) !== "assistant") continue;
+    const body = entryText(entry);
+    if (body && body.trim()) return entry;
+  }
+  return null;
+}
+
 async function printReport({ client, sessionId, write }) {
   const { messages } = await client.request("session/messages", { sessionId });
-  const report = extractFinalReport(messages ?? []);
+  const entry = finalAssistantEntry(messages ?? []);
+  const report = entry ? entryText(entry)?.trim() ?? null : null;
   if (report === null) {
     write(`!! could not extract the final assistant message; raw tail of session/messages:`);
     write(JSON.stringify((messages ?? []).slice(-4), null, 2));
-    return { report: null, messages };
+    return { report, messages, tokens: null };
   }
-  return { report, messages };
+  return { report, messages, tokens: entry?.info?.tokens ?? null };
 }
 
 function notFoundHint(error, sessionId) {
@@ -260,8 +331,10 @@ function notFoundHint(error, sessionId) {
 }
 
 // One shared host-role session setup: entitlement push, then create-or-
-// resume, then yolo + subscribe. Returns the client and session row.
-async function openSession({ launch, loadKey, resolveRevision, kind, workspace, sessionId }) {
+// resume, then spawn-time model selection (issue 09: session/setModel,
+// create path only — resume keeps the session's lane), then yolo +
+// subscribe. Returns the client and session row.
+async function openSession({ launch, loadKey, resolveRevision, kind, workspace, sessionId, model }) {
   const key = loadKey();
   const client = new AppServerClient({
     launch: launch ?? launchAppServer(),
@@ -282,6 +355,21 @@ async function openSession({ launch, loadKey, resolveRevision, kind, workspace, 
     } else {
       const result = await client.request("session/create", { workspace: { workspacePath: workspace, workspaceKey: workspace } });
       session = result?.session;
+      if (model) {
+        // Wire shape (A live + B bundle-read, 2026-10-13): strict
+        // {providerId, modelId, options: {reasoningLevel}} — a bare ref is
+        // refused with "Reasoning level is required". Without an explicit
+        // $level in the config, the level is the model's own defaultLevel
+        // from the registry's available list. A lane the registry does not
+        // hold fails here, before any turn spends tokens.
+        const { wireModel, reasoningLevel } = wireModelFor(model, result?.settings?.model?.available);
+        // persistAsWorkspaceLastUsed defaults true on the surface; a
+        // headless dispatch must not write its lane into the workspace's
+        // last-used-model state — that belongs to the Human's own
+        // sessions in this workspace.
+        await client.request("session/setModel", { sessionId: session.sessionId, model: wireModel, persistAsWorkspaceLastUsed: false });
+        session = { ...session, model: reasoningLevel ? { ...model, reasoningLevel } : model };
+      }
     }
     if (!session?.sessionId) throw new Error(`no sessionId in ${kind} result: ${JSON.stringify(session ?? {}).slice(0, 200)}`);
     await client.request("session/setMode", { sessionId: session.sessionId, mode: "yolo" });
@@ -291,6 +379,21 @@ async function openSession({ launch, loadKey, resolveRevision, kind, workspace, 
     await client.close().catch(() => {});
     throw error;
   }
+}
+
+function duplicateSeatMessage(seat, sessionId) {
+  return `seat '${seat}' already has session ${sessionId} recorded — re-poke it with 'room lead send ${seat}', or dispatch a new seat`;
+}
+
+// The post-turn record update, shared by new and send: bump the turn
+// count, stamp activity, and land the turn's usage and report preview.
+function completeTurn(map, seat, { tokens, report }) {
+  Object.assign(map[seat], {
+    turns: map[seat].turns + 1,
+    lastActivityAt: new Date().toISOString(),
+    lastTurnTokens: tokens,
+    lastReport: report ? report.slice(0, 200) : null,
+  });
 }
 
 export async function runLeadNew(options) {
@@ -317,11 +420,23 @@ export async function runLeadNew(options) {
   const contract = readFileSync(contractPath, "utf8");
   const leads = loadLeads(stateDir);
   if (leads[seat]) {
-    throw new Error(`seat '${seat}' already has session ${leads[seat].sessionId} recorded — re-poke it with 'room lead send ${seat}', or dispatch a new seat`);
+    throw new Error(duplicateSeatMessage(seat, leads[seat].sessionId));
   }
+  // Lane selection happens before anything is spent: a bad config or a
+  // bad override fails the dispatch with no session minted. A bad
+  // --model is a bad invocation (usage, exit 2); a bad config file is a
+  // runtime failure (exit 1).
+  const config = loadRoomConfig(stateDir);
+  let selection;
+  try {
+    selection = resolveModelSelection({ config, role: "lead", override: options.model });
+  } catch (error) {
+    throw new LeadUsageError(error.message);
+  }
+  const { model, source } = selection;
 
   const payload = composePayload({ contract, seat, workspace, brief: briefText.trim() });
-  const { client, session } = await openSession({ launch, loadKey, resolveRevision, kind: "create", workspace });
+  const { client, session } = await openSession({ launch, loadKey, resolveRevision, kind: "create", workspace, model });
   const write = (line) => process.stdout.write(`${line}\n`);
   try {
     const record = {
@@ -329,24 +444,30 @@ export async function runLeadNew(options) {
       sessionId: session.sessionId,
       workspace,
       model: session.model ?? null,
+      modelSource: source,
       createdAt: new Date().toISOString(),
       turns: 0,
       lastActivityAt: new Date().toISOString(),
+      lastTurnTokens: null,
       lastReport: null,
     };
     // Durable before the turn: even a hung first turn leaves the operator
     // the session id (though only a completed turn makes it resumable).
-    leads[seat] = record;
-    saveLeads(stateDir, leads);
+    // Under the lock — a concurrent dispatch to another seat must not be
+    // clobbered by this one's copy of the map.
+    await updateLeads(stateDir, (map) => {
+      if (map[seat]) throw new Error(duplicateSeatMessage(seat, map[seat].sessionId));
+      map[seat] = record;
+    });
 
-    write(`session ${session.sessionId} — model ${session.model ? `${session.model.providerId}/${session.model.modelId}` : "(none resolved)"}, turn 1 running`);
+    write(
+      `session ${session.sessionId} — model ${session.model ? formatModelWithLevel(session.model) : "(none resolved)"}` +
+        `${source === "config" ? " (config default)" : source === "override" ? " (--model override)" : ""}, turn 1 running`
+    );
     const outcome = await driveTurn({ client, sessionId: session.sessionId, content: payload, timeoutMs, write });
-    const { report } = await printReport({ client, sessionId: session.sessionId, write });
+    const { report, tokens } = await printReport({ client, sessionId: session.sessionId, write });
 
-    record.turns += 1;
-    record.lastActivityAt = new Date().toISOString();
-    record.lastReport = report ? report.slice(0, 200) : null;
-    saveLeads(stateDir, leads);
+    await updateLeads(stateDir, (map) => completeTurn(map, seat, { tokens, report }));
 
     write(`--- report (session ${session.sessionId}, ${outcome.method})`);
     if (report) write(report);
@@ -381,12 +502,9 @@ export async function runLeadSend(options) {
     client = (await openSession({ launch, loadKey, resolveRevision, kind: "resume", workspace: record.workspace, sessionId: record.sessionId })).client;
     write(`session ${record.sessionId} resumed — turn ${record.turns + 1} running`);
     const outcome = await driveTurn({ client, sessionId: record.sessionId, content: messageText.trim(), timeoutMs, write });
-    const { report } = await printReport({ client, sessionId: record.sessionId, write });
+    const { report, tokens } = await printReport({ client, sessionId: record.sessionId, write });
 
-    record.turns += 1;
-    record.lastActivityAt = new Date().toISOString();
-    record.lastReport = report ? report.slice(0, 200) : null;
-    saveLeads(stateDir, leads);
+    await updateLeads(stateDir, (map) => completeTurn(map, seat, { tokens, report }));
 
     write(`--- report (session ${record.sessionId}, ${outcome.method})`);
     if (report) write(report);
@@ -408,7 +526,7 @@ export function runLeadList({ stateDir, write = (line) => process.stdout.write(`
     return seats;
   }
   for (const record of seats) {
-    const model = record.model ? `${record.model.providerId}/${record.model.modelId}` : "(none)";
+    const model = formatModelWithLevel(record.model);
     write(`${record.seat}  ${record.sessionId}  turns=${record.turns}  ${model}  ${record.workspace}`);
     if (record.lastReport) write(`    last: ${record.lastReport.replace(/\s+/g, " ").slice(0, 140)}`);
   }
@@ -432,6 +550,7 @@ export async function runLeadCommand(argv, { resolveStateDir } = {}) {
   if (options.verb === "send") {
     if (!options.seat) throw new LeadUsageError("seat is required: room lead send <seat> …");
     if (!options.message) throw new LeadUsageError("--message is required (file path or - for stdin)");
+    if (options.model) throw new LeadUsageError("--model is spawn-time only (room lead new); a resumed Lead keeps its spawn-time lane");
     return runLeadSend({ ...options, stateDir });
   }
   if (options.verb === "list" || options.verb === undefined) {

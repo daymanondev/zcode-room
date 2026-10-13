@@ -16,6 +16,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AppServerClient } from "./appserver.mjs";
+import { wireModelFor } from "./config.mjs";
 import {
   PINS,
   findActiveCatalog,
@@ -143,6 +144,33 @@ export async function runDoctor({
           `live: model resolves after push (${resolved ? `${resolved.providerId}/${resolved.modelId}` : "none"})`,
           "model.available still empty after an accepted push — basedOnZCodeBuiltinRevision is stale; recompute the revision"
         ) && liveOk;
+
+      // setModel is the per-session lane selection the room config rides
+      // (issue 09) — pin it here too. It is a registry operation: no
+      // session/send happens, so still zero model calls and zero persisted
+      // sessions. Wire shape (A live + B bundle-read, 2026-10-13): strict
+      // {sessionId, model: {providerId, modelId, options:
+      // {reasoningLevel}}, persistAsWorkspaceLastUsed} — a bare ref is
+      // refused with "Reasoning level is required", and a registry that
+      // does not hold the model refuses with 「Provider Registry 中不存在
+      // Model」 ("Model not found in the Provider Registry") — exactly the
+      // failures this check must catch when the shape moves. The level
+      // sent is the model's own defaultLevel from the available list, and
+      // persistence as the workspace's last-used model is refused (false)
+      // — doctor must not touch UI state.
+      const createdId = after?.session?.sessionId;
+      const alternate = available.find((entry) => entry?.ref && (entry.ref.providerId !== resolved?.providerId || entry.ref.modelId !== resolved?.modelId));
+      if (!createdId || !alternate) {
+        write(`WARN  live: setModel probe skipped — ${!createdId ? "no sessionId in create result" : "only one model in the registry"}`);
+      } else {
+        try {
+          const { wireModel } = wireModelFor(alternate.ref, available);
+          await client.request("session/setModel", { sessionId: createdId, model: wireModel, persistAsWorkspaceLastUsed: false });
+          liveOk = check(true, `live: setModel selects ${alternate.ref.providerId}/${alternate.ref.modelId} (zero model calls)`, "") && liveOk;
+        } catch (error) {
+          liveOk = check(false, "live: setModel selects a catalog model", `${error.message} — the setModel shape moved; re-read the control-plane surface`) && liveOk;
+        }
+      }
     } catch (error) {
       liveOk = false;
       check(false, "live: entitlement path over app-server stdio", `${error.message}${client.crashReport() ? `\n       child stderr tail:\n${client.crashReport()

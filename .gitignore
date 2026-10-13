@@ -1,6 +1,8 @@
 # Room runtime state lives in the workspace by design (spec: state layout),
-# but is never committed. Committed room config will arrive as .room/room.json
-# (issue 09) and must be allow-listed here when it does.
-.room/
+# but is never committed. The one committed exception is the room config,
+# .room/room.json (issue 09): role model defaults are room identity the
+# audit should see, so the dir is ignored by contents, not wholesale.
+.room/*
+!.room/room.json
 
 node_modules/

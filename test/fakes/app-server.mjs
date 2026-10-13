@@ -30,11 +30,26 @@
 //                           per send; reply must carry a non-empty apiKey
 //   FAKE_HANG=1             start the turn but never complete it
 //   FAKE_TURN_DELAY_MS      completion delay (default 25)
+//
+// session/setModel (issue 09): mirrors the observed registry gate and
+// wire shape (live 2026-10-13 + bundle zod read) — the model param is
+// strict {providerId, modelId, options: {reasoningLevel?}}; a bare ref
+// is refused with "Reasoning level is required", a registry-unknown
+// model with the "not in the Provider Registry" error the wall probes
+// saw (§9.4), and an unrecognized key with a zod-shaped params error.
+// The registry exposes exactly the two models the plan actually serves
+// (observed live: GLM-5.3 and GLM-5.3-Flash — the catalog's GLM-5.2 and
+// GLM-5-Turbo are enabled in catalog rules but not served to this
+// account). defaultLevel is "max" for both.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-const MODEL_REF = { providerId: "account:zai-individual-coding-plan", modelId: "GLM-5.3" };
+const PROVIDER_ID = "account:zai-individual-coding-plan";
+const MODEL_IDS = ["GLM-5.3", "GLM-5.3-Flash"];
+const REASONING = { levels: ["low", "high", "max"].map((value) => ({ value, label: value })), defaultLevel: "max" };
+const MODEL_REFS = MODEL_IDS.map((modelId) => ({ providerId: PROVIDER_ID, modelId }));
+const MODEL_REF = MODEL_REFS[0];
 const MODES = ["plan", "build", "edit", "yolo", "guarded", "auto"];
 const DELIVERY_KINDS = ["desktop-continuous", "web-remote-replayable"];
 
@@ -113,7 +128,7 @@ async function handle(id, method, params) {
         }
       ).catch((error) => error);
       if (prefs instanceof Error) return replyError(id, prefs.message);
-      memory.set(sessionId, { sessionId, workspace: params?.workspace?.workspacePath, mode: "build", messages: [], resumed: false });
+      memory.set(sessionId, { sessionId, workspace: params?.workspace?.workspacePath, mode: "build", model: entitled ? MODEL_REF : null, messages: [], resumed: false });
       return {
         session: {
           sessionId,
@@ -122,9 +137,43 @@ async function handle(id, method, params) {
           workspace: params?.workspace,
           status: "idle",
         },
-        settings: { model: { available: entitled ? [{ ref: MODEL_REF, label: "GLM-5.3" }] : [] } },
+        settings: { model: { available: entitled ? MODEL_REFS.map((ref) => ({ ref, label: ref.modelId, reasoning: REASONING })) : [] } },
         messages: [],
       };
+    }
+    case "session/setModel": {
+      const model = params?.model;
+      if (typeof params?.sessionId !== "string" || typeof model?.providerId !== "string" || typeof model?.modelId !== "string") {
+        return replyError(id, "Invalid params — sessionId: expected string; model: expected {providerId, modelId}");
+      }
+      const unrecognized = Object.keys(model).filter((key) => key !== "providerId" && key !== "modelId" && key !== "options");
+      if (unrecognized.length > 0) {
+        return replyError(id, `Invalid params — model: Unrecognized key: "${unrecognized[0]}"`);
+      }
+      if (model.options !== undefined && (typeof model.options !== "object" || Object.keys(model.options).some((key) => key !== "reasoningLevel"))) {
+        return replyError(id, 'Invalid params — model.options: expected {reasoningLevel}');
+      }
+      const session = memory.get(params.sessionId) ?? loadDb().sessions[params.sessionId];
+      if (!session) return replyError(id, `Session not found: ${params.sessionId}`);
+      // The registry gate the wall probes observed (§9.4): a model the
+      // registry does not hold — unentitled provider, or not served to
+      // this account — is refused. Selection is registry-only: no model call.
+      const inRegistry = entitled && MODEL_REFS.some((ref) => ref.providerId === model.providerId && ref.modelId === model.modelId);
+      if (!inRegistry) {
+        return replyError(id, `Model not found in Provider Registry: ${model.providerId}/${model.modelId}`);
+      }
+      // Observed live 2026-10-13: these models demand an explicit
+      // reasoning level at selection time (create resolves implicitly;
+      // setModel does not).
+      const level = model.options?.reasoningLevel;
+      if (typeof level !== "string" || level.length === 0) {
+        return replyError(id, `Reasoning level is required for ${model.providerId}/${model.modelId}`);
+      }
+      if (!REASONING.levels.some((entry) => entry.value === level)) {
+        return replyError(id, `Reasoning effort "${level}" is not supported by ${model.providerId}/${model.modelId}`);
+      }
+      session.model = { providerId: model.providerId, modelId: model.modelId, reasoningLevel: level };
+      return { messages: [], projection: { model: session.model, sessionId: params.sessionId } };
     }
     case "session/setMode": {
       if (typeof params?.sessionId !== "string" || !MODES.includes(params?.mode)) {
@@ -167,7 +216,7 @@ async function handle(id, method, params) {
       if (process.env.FAKE_REQUIRE_HEADERS === "1") {
         const headers = await serverRequest(
           "interaction/requestProviderRuntimeHeaders",
-          { sessionId: params.sessionId, modelId: MODEL_REF.modelId },
+          { sessionId: params.sessionId, modelId: session.model?.modelId ?? MODEL_REF.modelId, providerId: session.model?.providerId ?? MODEL_REF.providerId },
           (result) => {
             if (typeof result?.requestAuth?.apiKey !== "string" || result.requestAuth.apiKey.length === 0) {
               throw new Error("provider runtime headers reply must carry requestAuth.apiKey");
@@ -230,7 +279,7 @@ async function handle(id, method, params) {
       if (!session) return replyError(id, `Session not found: ${params.sessionId}`);
       const live = { ...session, resumed: true };
       memory.set(params.sessionId, live);
-      return { session: { sessionId: live.sessionId, mode: live.mode, model: MODEL_REF, workspace: { workspacePath: live.workspace } }, messages: live.messages };
+      return { session: { sessionId: live.sessionId, mode: live.mode, model: live.model ?? MODEL_REF, workspace: { workspacePath: live.workspace } }, messages: live.messages };
     }
     case "session/messages": {
       if (typeof params?.sessionId !== "string") {

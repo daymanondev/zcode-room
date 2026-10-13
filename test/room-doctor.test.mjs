@@ -55,6 +55,7 @@ test("doctor reports GO on a healthy world, proving the entitlement path live", 
   assert.match(text, /PASS  live: baseline create shows the entitlement wall/);
   assert.match(text, /PASS  live: entitlement push received \(providerCount: 1\)/);
   assert.match(text, /PASS  live: model resolves after push/);
+  assert.match(text, /PASS  live: setModel selects account:zai-individual-coding-plan\/GLM-5\.3-Flash \(zero model calls\)/);
   assert.match(text, /GO — the wrapper may spawn Leads on this build/);
 });
 

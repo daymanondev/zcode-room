@@ -86,13 +86,19 @@ commander, and ownership never changes by silence.
 
    ```
    node <plugin-root>/cli/room.mjs lead new <seat> \
-     --workspace <dir> --brief <brief file>
+     --workspace <dir> --brief <brief file> [--model <providerId/modelId>]
    ```
 
    (`<plugin-root>` is this skill's base directory two levels up —
    `skills/slp/` lives inside the plugin. In the build repo,
    `npm run room -- lead new …` is equivalent.) The wrapper prints the
    Lead's final report; the harness re-invokes this session when it exits.
+
+   The lane comes from the room config: `<state-dir>/room.json` (committed)
+   declares the lead role's default model and menu. Add `--model
+   <providerId/modelId>` for one dispatch that justifies a different lane
+   (it must be on the menu) — never edit the config for a single
+   dispatch, and never silently dispatch off-menu.
 
 ## On the completion notification — the relay
 
@@ -139,6 +145,9 @@ explicit instruction.
 
 ## Not yours to build here
 
-Per-role model defaults (config), the heartbeat/re-poke automation,
-wrong-seat enforcement beyond the supervisor arming, the room board, and
-teardown are each their own tickets — do not improvise them in-room.
+The heartbeat/re-poke automation, wrong-seat enforcement beyond the
+supervisor arming, the room board, and teardown are each their own
+tickets — do not improvise them in-room. (Per-role model defaults shipped
+as issue 09: the committed `<state-dir>/room.json` now carries them; edit
+it only on the Human's instruction — lane economics is a cost decision,
+which is the Human's.)
